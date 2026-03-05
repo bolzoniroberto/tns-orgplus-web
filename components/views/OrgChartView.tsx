@@ -18,27 +18,19 @@ import {
   Position
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Search, X } from 'lucide-react'
+import { Search, Users, X } from 'lucide-react'
 import { useOrgStore } from '@/store/useOrgStore'
 import type { Struttura } from '@/types'
 import OrgNode from '@/components/orgchart/OrgNode'
-import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
 import RecordDrawer from '@/components/shared/RecordDrawer'
+import LayoutHUD from '@/components/orgchart/LayoutHUD'
+import UnassignedPanel from '@/components/orgchart/UnassignedPanel'
 
-const NODE_TYPES = { orgNode: OrgNode, orgGroup: OrgGroupNode }
+const NODE_TYPES = { orgNode: OrgNode }
 
 const H_GAP = 260
 const V_GAP = 150
-const OVERFLOW_DEFAULT = 3   // children shown before "···" button
-const OVERFLOW_MAX = 12      // max children visible when overflow expanded
 const GRID_COLS = 4          // fallback columns in multi-row grid layout
-
-// Sede layout constants
-const SEDE_NODE_W = 240
-const SEDE_NODE_H = 100
-const SEDE_PAD = 20
-const SEDE_GAP = 40
-const SEDE_INNER_COLS = 4
 
 interface TreeNode {
   struttura: Struttura & { dipendenti_count: number }
@@ -117,7 +109,7 @@ function analyzeTree(nodes: TreeNode[]): TreeMetrics {
 
   const avgSpan = spanCount > 0 ? totalSpan / spanCount : 0
   const dynamicGridCols = avgSpan > 8 ? Math.ceil(avgSpan / 2) : GRID_COLS
-  const useVerticalStacking = maxDepth > 9
+  const useVerticalStacking = maxDepth > 4
 
   return { avgSpan, maxDepth, totalNodes, dynamicGridCols, useVerticalStacking }
 }
@@ -166,10 +158,7 @@ function layoutTree(
         childY += (getSubtreeDepth(child) + 1) * V_GAP
       }
       x = maxChildRight  // advance past the widest child subtree
-    } else if (
-      node.children.length > config.gridCols &&
-      node.children.every((c) => c.children.length === 0)
-    ) {
+    } else if (node.children.length > GRID_COLS) {
       const n = node.children.length
       const actualCols = Math.min(config.gridCols, n)
       const gridWidth = actualCols * H_GAP
@@ -182,6 +171,16 @@ function layoutTree(
         const row = Math.floor(i / config.gridCols)
         node.children[i].x = gridStartX + col * H_GAP
         node.children[i].y = (node.depth + 1 + row) * V_GAP
+        // Recursively layout subtrees of non-leaf grid children
+        if (node.children[i].children.length > 0) {
+          layoutTree(node.children[i].children, node.children[i].x, config)
+          const yDelta = node.children[i].y - node.children[i].depth * V_GAP
+          if (yDelta !== 0) {
+            for (const desc of flattenTree(node.children[i].children)) {
+              desc.y += yDelta
+            }
+          }
+        }
       }
 
       x = gridStartX + gridWidth
@@ -246,17 +245,47 @@ function buildAncestorPath(
   return path
 }
 
+function removeDescendants(
+  codice: string,
+  collapsed: Set<string>,
+  strutture: (Struttura & { dipendenti_count: number })[]
+): void {
+  collapsed.delete(codice)
+  strutture
+    .filter(s => s.codice_padre === codice && !s.deleted_at)
+    .forEach(child => removeDescendants(child.codice, collapsed, strutture))
+}
+
 // ── Smart Edge Routing ────────────────────────────────────────────────────────
 
 function segmentIntersectsBox(
   x1: number, y1: number, x2: number, y2: number,
   box: NodeBox
 ): boolean {
-  const midX = (x1 + x2) / 2
-  const minY = Math.min(y1, y2)
-  const maxY = Math.max(y1, y2)
-  return midX >= box.x && midX <= box.x + box.w &&
-    maxY >= box.y && minY <= box.y + box.h
+  const bx1 = box.x, by1 = box.y, bx2 = box.x + box.w, by2 = box.y + box.h
+  // Quick bounding box reject
+  if (Math.max(x1, x2) < bx1 || Math.min(x1, x2) > bx2) return false
+  if (Math.max(y1, y2) < by1 || Math.min(y1, y2) > by2) return false
+  // Either endpoint inside the box
+  if (x1 >= bx1 && x1 <= bx2 && y1 >= by1 && y1 <= by2) return true
+  if (x2 >= bx1 && x2 <= bx2 && y2 >= by1 && y2 <= by2) return true
+  // Test segment against each of the 4 box edges
+  function segsIntersect(ax1: number, ay1: number, ax2: number, ay2: number,
+                         cx1: number, cy1: number, cx2: number, cy2: number): boolean {
+    const d1x = ax2 - ax1, d1y = ay2 - ay1
+    const d2x = cx2 - cx1, d2y = cy2 - cy1
+    const cross = d1x * d2y - d1y * d2x
+    if (Math.abs(cross) < 1e-10) return false
+    const t = ((cx1 - ax1) * d2y - (cy1 - ay1) * d2x) / cross
+    const u = ((cx1 - ax1) * d1y - (cy1 - ay1) * d1x) / cross
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1
+  }
+  return (
+    segsIntersect(x1, y1, x2, y2, bx1, by1, bx2, by1) ||
+    segsIntersect(x1, y1, x2, y2, bx2, by1, bx2, by2) ||
+    segsIntersect(x1, y1, x2, y2, bx2, by2, bx1, by2) ||
+    segsIntersect(x1, y1, x2, y2, bx1, by2, bx1, by1)
+  )
 }
 
 function OrgEdge({ id, sourceX, sourceY, targetX, targetY, data, style }: EdgeProps) {
@@ -276,179 +305,89 @@ function OrgEdge({ id, sourceX, sourceY, targetX, targetY, data, style }: EdgePr
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-type ColorMode = 'none' | 'sede' | 'livello' | 'unita'
+type ColorMode = 'none' | 'dipendenti'
 type ColorScheme = { border: string; bg: string }
 
-function buildColorMap(
-  strutture: (Struttura & { dipendenti_count: number })[],
-  mode: ColorMode
-): Map<string, ColorScheme> {
-  if (mode === 'none') return new Map()
-  type ColorField = 'sede_tns' | 'livello' | 'unita_organizzativa'
-  const field: ColorField =
-    mode === 'sede' ? 'sede_tns' :
-    mode === 'livello' ? 'livello' :
-    'unita_organizzativa'
-  const unique = [...new Set(
-    strutture.map((s) => (s[field] as string | null) ?? '').filter(Boolean)
-  )]
-  return new Map(
-    unique.map((val, i) => [
-      val,
-      {
-        border: `hsl(${Math.round((i / unique.length) * 300)}, 55%, 55%)`,
-        bg: `hsl(${Math.round((i / unique.length) * 300)}, 55%, 97%)`
-      }
-    ])
-  )
-}
+const COLOR_DIPENDENTI_DIRETTI: ColorScheme  = { border: '#16a34a', bg: '#f0fdf4' }  // verde  — dipendenti diretti
+const COLOR_DIPENDENTI_INDIRETTI: ColorScheme = { border: '#d97706', bg: '#fffbeb' } // giallo — solo in strutture figlie
+const COLOR_NESSUN_DIPENDENTE: ColorScheme    = { border: '#9ca3af', bg: '#f9fafb' } // grigio — nessun dipendente
 
-function buildSedeLayout(
-  strutture: (Struttura & { dipendenti_count: number })[],
-  colorMap: Map<string, ColorScheme>,
-  colorMode: ColorMode,
-  focusPath: Set<string> | null,
-  onOpenDrawer: (s: Struttura & { dipendenti_count: number }) => void
-): { nodes: Node[]; edges: Edge[] } {
-  const bySede = new Map<string, (Struttura & { dipendenti_count: number })[]>()
-  strutture.filter((s) => !s.deleted_at).forEach((s) => {
-    const sede = s.sede_tns ?? 'N/A'
-    if (!bySede.has(sede)) bySede.set(sede, [])
-    bySede.get(sede)!.push(s)
-  })
-
-  const sedeList = [...bySede.keys()]
-  const sedeColors = new Map<string, ColorScheme>(
-    sedeList.map((sede, i) => [
-      sede,
-      {
-        border: `hsl(${Math.round((i / sedeList.length) * 300)}, 55%, 55%)`,
-        bg: `hsl(${Math.round((i / sedeList.length) * 300)}, 55%, 97%)`
-      }
-    ])
-  )
-
-  let offsetX = 0
-  const nodes: Node[] = []
-  const edges: Edge[] = []
-
-  bySede.forEach((items, sede) => {
-    const cols = Math.min(SEDE_INNER_COLS, items.length)
-    const rows = Math.ceil(items.length / SEDE_INNER_COLS)
-    const groupW = SEDE_PAD * 2 + cols * SEDE_NODE_W + (cols - 1) * 12
-    const groupH = 50 + rows * SEDE_NODE_H + (rows - 1) * 12
-    const sedeColor = sedeColors.get(sede)!
-
-    nodes.push({
-      id: `group_${sede}`,
-      type: 'orgGroup',
-      position: { x: offsetX, y: 0 },
-      style: { width: groupW, height: groupH },
-      data: {
-        label: sede,
-        count: items.length,
-        color: sedeColor.border,
-        bgColor: sedeColor.bg
-      }
-    })
-
-    items.forEach((s, i) => {
-      type ColorField = 'sede_tns' | 'livello' | 'unita_organizzativa'
-      const field: ColorField =
-        colorMode === 'sede' ? 'sede_tns' :
-        colorMode === 'livello' ? 'livello' :
-        'unita_organizzativa'
-      const fieldVal = colorMode !== 'none' ? (s[field] as string | null) ?? '' : ''
-      const colorScheme = colorMode !== 'none' ? colorMap.get(fieldVal) : undefined
-      const focusStyle: React.CSSProperties = focusPath
-        ? { opacity: focusPath.has(s.codice) ? 1 : 0.2, transition: 'opacity 150ms' }
-        : { transition: 'opacity 150ms' }
-
-      nodes.push({
-        id: s.codice,
-        type: 'orgNode',
-        parentId: `group_${sede}`,
-        extent: 'parent',
-        position: {
-          x: SEDE_PAD + (i % SEDE_INNER_COLS) * (SEDE_NODE_W + 12),
-          y: 40 + Math.floor(i / SEDE_INNER_COLS) * (SEDE_NODE_H + 12)
-        },
-        data: {
-          struttura: s,
-          collapsed: false,
-          hasChildren: false,
-          childrenCount: 0,
-          depth: 0,
-          isOverflowed: false,
-          hiddenCount: 0,
-          colorScheme,
-          alertNoTitolare: !s.titolare,
-          alertNoDipendenti: s.dipendenti_count === 0,
-          onExpand: () => {},
-          onExpandOverflow: () => {},
-          onOpenDrawer: () => onOpenDrawer(s)
-        },
-        style: focusStyle
-      })
-    })
-
-    offsetX += groupW + SEDE_GAP
-  })
-
-  // Cross-sede edges only
-  strutture.filter((s) => !s.deleted_at).forEach((s) => {
-    if (s.codice_padre) {
-      const parent = strutture.find((p) => p.codice === s.codice_padre)
-      if (parent && parent.sede_tns !== s.sede_tns) {
-        edges.push({
-          id: `e_${s.codice_padre}-${s.codice}`,
-          source: s.codice_padre,
-          target: s.codice,
-          style: { stroke: '#d1d5db', strokeDasharray: '4 4' }
-        })
-      }
-    }
-  })
-
-  return { nodes, edges }
-}
 
 interface OrgCanvasProps {
   strutture: (Struttura & { dipendenti_count: number })[]
 }
 
 function OrgCanvas({ strutture }: OrgCanvasProps) {
-  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
-  const [expandedOverflow, setExpandedOverflow] = useState<Set<string>>(new Set())
+  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(() => {
+    const withChildren = new Set<string>()
+    strutture.forEach(s => {
+      if (strutture.some(c => c.codice_padre === s.codice && !c.deleted_at))
+        withChildren.add(s.codice)
+    })
+    return withChildren
+  })
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerRecord, setDrawerRecord] = useState<(Struttura & { dipendenti_count: number }) | null>(null)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<(Struttura & { dipendenti_count: number })[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
-  const [sedeFiltro, setSedeFiltro] = useState<string>('all')
   const [colorMode, setColorMode] = useState<ColorMode>('none')
-  const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const prevVisibleIdsRef = useRef<Set<string>>(new Set())
   const compactModeRef = useRef(false)
-  const preContextualSnapshot = useRef<{ set: Set<string>; overflow: Set<string> } | null>(null)
-  const { fitView, setCenter } = useReactFlow()
+  const [activeExpansion, setActiveExpansion] = useState<{
+    nodeId: string
+    snapshot: Set<string>
+  } | null>(null)
+  const { fitView, setCenter, getNodes } = useReactFlow()
   const { zoom } = useViewport()
   const { refreshAll } = useOrgStore()
 
+  const [hideNoEmployees, setHideNoEmployees] = useState(false)
+  const [unassignedPanelOpen, setUnassignedPanelOpen] = useState(false)
+
+  const { dipendenti } = useOrgStore()
+
+  const unassignedCount = useMemo(
+    () => dipendenti.filter(d => !d.deleted_at && !d.codice_struttura?.trim()).length,
+    [dipendenti]
+  )
+
   const edgeTypes = useMemo(() => ({ orgEdge: OrgEdge }), [])
 
-  const sediList = useMemo(() => {
-    const all = new Set<string>()
-    strutture.forEach((s) => s.sede_tns && all.add(s.sede_tns))
-    return Array.from(all).sort()
+  // Always computed — used for both coloring and filtering
+  const subtreeHasDipendenti = useMemo(() => {
+    const strutMap = new Map(strutture.filter(s => !s.deleted_at).map(s => [s.codice, s]))
+    const childrenOf = new Map<string, string[]>()
+    strutMap.forEach(s => {
+      const p = s.codice_padre ?? '__root__'
+      if (!childrenOf.has(p)) childrenOf.set(p, [])
+      childrenOf.get(p)!.push(s.codice)
+    })
+    const result = new Set<string>()
+    const dfs = (codice: string): boolean => {
+      const s = strutMap.get(codice)
+      if (!s) return false
+      const selfHas = s.dipendenti_count > 0
+      // Must visit ALL children — do not short-circuit with .some()
+      let childHas = false
+      for (const c of (childrenOf.get(codice) ?? [])) {
+        if (dfs(c)) childHas = true
+      }
+      if (selfHas || childHas) { result.add(codice); return true }
+      return false
+    }
+    ;(childrenOf.get('__root__') ?? []).forEach(r => dfs(r))
+    return result
   }, [strutture])
 
-  const filteredStrutture = useMemo(() => {
-    if (sedeFiltro === 'all') return strutture
-    return strutture.filter((s) => (s.sede_tns?.toLowerCase() ?? '') === sedeFiltro.toLowerCase())
-  }, [strutture, sedeFiltro])
+  const filteredStrutture = useMemo(
+    () => hideNoEmployees
+      ? strutture.filter(s => subtreeHasDipendenti.has(s.codice))
+      : strutture,
+    [strutture, hideNoEmployees, subtreeHasDipendenti]
+  )
 
   const childCountMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -463,37 +402,59 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
     return map
   }, [filteredStrutture])
 
-  const visibleTree = useMemo(() => {
-    function filterTree(nodes: TreeNode[]): TreeNode[] {
-      return nodes.map((n) => {
-        const codice = n.struttura.codice
-        if (collapsedSet.has(codice)) return { ...n, children: [] }
+  const { visibleTree, treeMetrics, forcedVerticalCount } = useMemo(() => {
+    // When accordion is active, compute which nodes should remain visible
+    // (ancestor path to selected node + selected node's visible subtree)
+    let accordionVisibleSet: Set<string> | null = null
+    if (activeExpansion) {
+      accordionVisibleSet = new Set<string>()
+      // Walk ancestor path from selected node to root
+      let cur: string | null = activeExpansion.nodeId
+      while (cur) {
+        accordionVisibleSet.add(cur)
+        const found = filteredStrutture.find(s => s.codice === cur)
+        cur = found?.codice_padre ?? null
+      }
+      // Add the visible subtree under the selected node (respecting collapsedSet)
+      const addSubtree = (codice: string) => {
+        accordionVisibleSet!.add(codice)
+        if (!collapsedSet.has(codice)) {
+          filteredStrutture
+            .filter(s => s.codice_padre === codice && !s.deleted_at)
+            .forEach(child => addSubtree(child.codice))
+        }
+      }
+      addSubtree(activeExpansion.nodeId)
+    }
 
-        const allChildren = filterTree(n.children)
-        if (allChildren.length <= OVERFLOW_DEFAULT) return { ...n, children: allChildren }
-        if (expandedOverflow.has(codice)) return { ...n, children: allChildren.slice(0, OVERFLOW_MAX) }
-        return { ...n, children: allChildren.slice(0, OVERFLOW_DEFAULT) }
-      })
+    function filterTree(nodes: TreeNode[]): TreeNode[] {
+      return nodes
+        .filter(n => !accordionVisibleSet || accordionVisibleSet.has(n.struttura.codice))
+        .map((n) => {
+          const codice = n.struttura.codice
+          if (collapsedSet.has(codice)) return { ...n, children: [] }
+          return { ...n, children: filterTree(n.children) }
+        })
     }
 
     const root = buildTree(filteredStrutture, null)
     const metrics = analyzeTree(root)
     const layoutConfig: LayoutConfig = {
       gridCols: metrics.dynamicGridCols,
-      verticalStackingDepth: metrics.useVerticalStacking ? 7 : null,
+      verticalStackingDepth: metrics.useVerticalStacking ? 4 : null,
       forcedVerticalNodes: new Set()
     }
     const filtered = filterTree(root)
     layoutTree(filtered, 0, layoutConfig)
 
-    // Feature 2: Aspect ratio balancing
-    const TARGET_RATIO = 4.0  // org charts are naturally wider than tall
-    const MAX_ITER = 3
+    // Aspect ratio balancing — target 1.8:1, up to 5 iterations
+    const TARGET_RATIO = 1.8
+    const MAX_ITER = 5
     let iter = 0
     let bbox = getBoundingBox(filtered)
     let ratio = (bbox.maxX - bbox.minX) / Math.max(1, bbox.maxY - bbox.minY)
 
-    while (ratio > TARGET_RATIO && iter < MAX_ITER && metrics.totalNodes > 30) {
+    while (ratio > TARGET_RATIO && iter < MAX_ITER && metrics.totalNodes > 10) {
       const target = findWidestHorizontalSubtree(filtered)
       if (!target) break
       target._verticalStacked = true
@@ -504,22 +465,30 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
       iter++
     }
 
-    return flattenTree(filtered)
-  }, [filteredStrutture, collapsedSet, expandedOverflow])
+    return {
+      visibleTree: flattenTree(filtered),
+      treeMetrics: metrics,
+      forcedVerticalCount: layoutConfig.forcedVerticalNodes.size
+    }
+  }, [filteredStrutture, collapsedSet, activeExpansion])
 
-  // Compact mode with hysteresis: enter at >80 nodes + zoom<0.4, exit at <60 nodes or zoom>0.4
-  // Using 0.4 matches the macro LOD threshold — compact replaces macro only when truly zoomed out
+  // Compact mode with hysteresis: enter at >50 nodes, exit at <40 nodes or zoom>0.5
   const compactMode = useMemo(() => {
     const n = visibleTree.length
-    if (!compactModeRef.current && n > 80 && zoom < 0.4) compactModeRef.current = true
-    else if (compactModeRef.current && (zoom > 0.4 || n < 60)) compactModeRef.current = false
+    if (!compactModeRef.current && n > 50) compactModeRef.current = true
+    else if (compactModeRef.current && (zoom > 0.5 || n < 40)) compactModeRef.current = false
     return compactModeRef.current
   }, [visibleTree.length, zoom])
 
-  const colorMap = useMemo(
-    () => buildColorMap(filteredStrutture, colorMode),
-    [filteredStrutture, colorMode]
-  )
+  const activeLayoutModes = useMemo(() => {
+    const modes: string[] = []
+    if (treeMetrics.avgSpan > 8) modes.push('Grid Layout')
+    if (treeMetrics.maxDepth > 5) modes.push('Albero Profondo')
+    if (compactMode) modes.push('Vista Compatta')
+    if (forcedVerticalCount > 0) modes.push('Stacking Verticale')
+    return modes
+  }, [treeMetrics, compactMode, forcedVerticalCount])
+
 
   const focusPath = useMemo(() => {
     if (!focusedNode) return null
@@ -547,8 +516,8 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
     return set
   }, [hoveredNode, filteredStrutture])
 
-  // Click-focus has priority over hover
-  const activePath = focusPath ?? hoverPath
+  // Click-focus has priority over hover; disabled in accordion mode (nodes are filtered out instead)
+  const activePath = activeExpansion ? null : (focusPath ?? hoverPath)
 
   const focusedLabel = useMemo(() => {
     if (!focusedNode) return null
@@ -562,31 +531,12 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
         next.delete(codice)
       } else {
         next.add(codice)
-        setExpandedOverflow((o) => { const s = new Set(o); s.delete(codice); return s })
       }
       return next
     })
   }, [])
 
-  const toggleOverflow = useCallback((codice: string) => {
-    setExpandedOverflow((prev) => {
-      const next = new Set(prev)
-      if (next.has(codice)) next.delete(codice)
-      else next.add(codice)
-      return next
-    })
-  }, [])
-
   const { nodes, edges } = useMemo(() => {
-    if (viewMode === 'sede') {
-      return buildSedeLayout(filteredStrutture, colorMap, colorMode, focusPath, (s) => {
-        setDrawerRecord(s)
-        setDrawerOpen(true)
-        setFocusedNode(s.codice)
-      })
-    }
-
-    // Tree view
     const prevIds = prevVisibleIdsRef.current
     const newParentCount = new Map<string, number>()  // parent → counter of new siblings seen
 
@@ -599,21 +549,16 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
       const codice = tn.struttura.codice
       const totalChildren = childCountMap.get(codice) ?? 0
       const isCollapsed = collapsedSet.has(codice)
-      const isOverflowed =
-        !isCollapsed &&
-        totalChildren > OVERFLOW_DEFAULT &&
-        !expandedOverflow.has(codice)
-      const hiddenCount = isOverflowed
-        ? totalChildren - OVERFLOW_DEFAULT
-        : Math.max(0, totalChildren - OVERFLOW_MAX)
+      const isOverflowed = false
+      const hiddenCount = 0
 
-      type ColorField = 'sede_tns' | 'livello' | 'unita_organizzativa'
-      const field: ColorField =
-        colorMode === 'sede' ? 'sede_tns' :
-        colorMode === 'livello' ? 'livello' :
-        'unita_organizzativa'
-      const fieldVal = colorMode !== 'none' ? (tn.struttura[field] as string | null) ?? '' : ''
-      const colorScheme = colorMode !== 'none' ? colorMap.get(fieldVal) : undefined
+      const colorScheme: ColorScheme | undefined = colorMode === 'dipendenti'
+        ? tn.struttura.dipendenti_count > 0
+          ? COLOR_DIPENDENTI_DIRETTI
+          : subtreeHasDipendenti.has(codice)
+            ? COLOR_DIPENDENTI_INDIRETTI
+            : COLOR_NESSUN_DIPENDENTE
+        : undefined
       const focusStyle: React.CSSProperties = activePath
         ? { opacity: activePath.has(codice) ? 1 : 0.25, transition: 'opacity 100ms' }
         : { transition: 'opacity 150ms' }
@@ -627,6 +572,10 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
         newParentCount.set(parentKey, sibIdx + 1)
         entranceDelay = sibIdx * 40   // 0ms, 40ms, 80ms, 120ms…
       }
+
+      const motionStyle: React.CSSProperties = isNew
+        ? {}
+        : { transition: 'transform 350ms cubic-bezier(0.4,0,0.2,1)' }
 
       return {
         id: codice,
@@ -646,7 +595,7 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
           entranceDelay,
           compact: compactMode,
           onExpand: () => toggleCollapse(codice),
-          onExpandOverflow: () => toggleOverflow(codice),
+          onExpandOverflow: () => {},
           onOpenDrawer: () => {
             setDrawerRecord(tn.struttura)
             setDrawerOpen(true)
@@ -654,7 +603,7 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
           }
         },
         className: highlightedNode === codice ? 'ring-2 ring-indigo-500 rounded-lg' : undefined,
-        style: focusStyle
+        style: { ...focusStyle, ...motionStyle }
       }
     })
 
@@ -674,9 +623,8 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
 
     return { nodes: treeNodes, edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, visibleTree, collapsedSet, expandedOverflow, childCountMap, highlightedNode,
-      toggleCollapse, toggleOverflow, filteredStrutture, colorMode, colorMap, focusPath, hoverPath,
-      compactMode])
+  }, [visibleTree, collapsedSet, childCountMap, highlightedNode,
+      toggleCollapse, colorMode, subtreeHasDipendenti, focusPath, hoverPath, compactMode])
 
   // Track which nodes are visible for staggered entrance (must run before next render reads the ref)
   useEffect(() => {
@@ -685,19 +633,64 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
     )
   }, [nodes])
 
+  // Reset accordion and collapsed state when the employee filter changes
+  useEffect(() => {
+    setActiveExpansion(null)
+    setFocusedNode(null)
+    const withChildren = new Set(
+      filteredStrutture.filter(s =>
+        !s.deleted_at && filteredStrutture.some(c => c.codice_padre === s.codice && !c.deleted_at)
+      ).map(s => s.codice)
+    )
+    setCollapsedSet(withChildren)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideNoEmployees])
+
   // Fit view when data changes
   useEffect(() => {
     if (nodes.length > 0) {
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredStrutture, viewMode])
+  }, [strutture])
 
-  // Fit view when side panel opens/closes
+  // When accordion expands: center on selected node + its children.
+  // Depends on visibleTree so it fires AFTER the layout has been recomputed,
+  // guaranteeing ReactFlow has the correct positions in its store.
+  useEffect(() => {
+    if (!activeExpansion) return
+    const nodeId = activeExpansion.nodeId
+    const selectedTN = visibleTree.find(n => n.struttura.codice === nodeId)
+    if (!selectedTN) return
+
+    const childrenTN = visibleTree.filter(n => n.struttura.codice_padre === nodeId)
+    const fitNodes = [
+      { id: nodeId },
+      ...childrenTN.map(n => ({ id: n.struttura.codice }))
+    ]
+
+    // Short delay: visibleTree is already computed, we just need ReactFlow to
+    // flush the new node positions into its internal store (one render cycle).
+    const t = setTimeout(() => {
+      fitView({ nodes: fitNodes, padding: 0.25, duration: 400 })
+    }, 60)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeExpansion?.nodeId, visibleTree])
+
+  // When collapsedSet changes outside accordion (expandAll/collapseAll/toggleCollapse)
+  useEffect(() => {
+    if (activeExpansion) return
+    const t = setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 400)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsedSet])
+
+  // Fit view when side panels open/close
   useEffect(() => {
     setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 50)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerOpen])
+  }, [drawerOpen, unassignedPanelOpen])
 
   // Search
   useEffect(() => {
@@ -719,75 +712,88 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
 
   const handleSelectSearchResult = useCallback(
     (s: Struttura & { dipendenti_count: number }) => {
+      const codice = s.codice
       setSearch(s.descrizione ?? '')
       setSearchResults([])
-      setHighlightedNode(s.codice)
-      const node = nodes.find((n) => n.id === s.codice)
-      if (node) {
-        setCenter(node.position.x + 110, node.position.y + 45, { duration: 600, zoom: 1 })
+      setHighlightedNode(codice)
+      setTimeout(() => setHighlightedNode(null), 2500)
+
+      // Expand accordion to make node visible: uncollapse ancestor path + the node itself
+      const snapshot = activeExpansion?.snapshot ?? new Set(collapsedSet)
+      const next = new Set(snapshot)
+      // Uncollapse all ancestors
+      let ancestor: string | null = filteredStrutture.find(fs => fs.codice === codice)?.codice_padre ?? null
+      while (ancestor) {
+        next.delete(ancestor)
+        const found = filteredStrutture.find(fs => fs.codice === ancestor)
+        ancestor = found?.codice_padre ?? null
       }
-      setTimeout(() => setHighlightedNode(null), 2000)
+      // Uncollapse the node itself if it has children
+      const hasChildren = (childCountMap.get(codice) ?? 0) > 0
+      if (hasChildren) {
+        next.delete(codice)
+        setActiveExpansion({ nodeId: codice, snapshot })
+        setFocusedNode(codice)
+      }
+      setCollapsedSet(next)
+
+      // Center on node after layout settles
+      setTimeout(() => {
+        const n = getNodes().find(nd => nd.id === codice)
+        if (n) setCenter(n.position.x + 110, n.position.y + 45, { duration: 500, zoom: 1 })
+      }, 480)
     },
-    [nodes, setCenter]
+    [activeExpansion, collapsedSet, filteredStrutture, childCountMap, getNodes, setCenter]
   )
 
   const expandAll = useCallback(() => setCollapsedSet(new Set()), [])
   const collapseAll = useCallback(() => {
-    const allCodes = new Set(strutture.map((s) => s.codice))
+    const allCodes = new Set(strutture.filter(s => !s.deleted_at).map(s => s.codice))
     setCollapsedSet(allCodes)
-    setExpandedOverflow(new Set())
+    setActiveExpansion(null)
   }, [strutture])
-
-  const restoreContextualSnapshot = useCallback(() => {
-    if (preContextualSnapshot.current) {
-      setCollapsedSet(preContextualSnapshot.current.set)
-      setExpandedOverflow(preContextualSnapshot.current.overflow)
-      preContextualSnapshot.current = null
-    }
-  }, [])
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
-    const tn = visibleTree.find(t => t.struttura.codice === node.id)
-    setFocusedNode(node.id)
+    const codice = node.id
+    const hasChildren = (childCountMap.get(codice) ?? 0) > 0
+    if (!hasChildren) return  // leaf node — no accordion
 
-    if (!tn || tn.depth < 4) return
-
-    // Save snapshot on first contextual click
-    if (preContextualSnapshot.current === null) {
-      preContextualSnapshot.current = {
-        set: new Set(collapsedSet),
-        overflow: new Set(expandedOverflow)
+    // Helper: uncollapse ancestor path so the node is reachable in the tree
+    const uncollapseAncestors = (target: string, next: Set<string>) => {
+      let ancestor: string | null = filteredStrutture.find(s => s.codice === target)?.codice_padre ?? null
+      while (ancestor) {
+        next.delete(ancestor)
+        const found = filteredStrutture.find(s => s.codice === ancestor)
+        ancestor = found?.codice_padre ?? null
       }
     }
 
-    const ancestorPath = buildAncestorPath(node.id, filteredStrutture)
-    const snapshotCollapsed = preContextualSnapshot.current.set
-    const next = new Set(snapshotCollapsed)
-
-    // Expand all nodes on the ancestor path
-    for (const codice of ancestorPath) {
-      next.delete(codice)
+    if (activeExpansion?.nodeId === codice) {
+      // 2nd click: collapse — restore snapshot
+      setCollapsedSet(activeExpansion.snapshot)
+      setActiveExpansion(null)
+      return
     }
 
-    // Collapse siblings of each ancestor that are not on the path
-    for (const codice of ancestorPath) {
-      const s = filteredStrutture.find(s => s.codice === codice)
-      if (s?.codice_padre) {
-        filteredStrutture
-          .filter(sib => sib.codice_padre === s.codice_padre && !ancestorPath.has(sib.codice))
-          .forEach(sib => next.add(sib.codice))
-      }
-    }
-
+    // Different node or no active: restore snapshot, uncollapse ancestor path, expand node
+    const snapshot = activeExpansion?.snapshot ?? new Set(collapsedSet)
+    const next = new Set(snapshot)
+    uncollapseAncestors(codice, next)
+    next.delete(codice)  // expose direct children; their children stay collapsed
     setCollapsedSet(next)
-  }, [visibleTree, collapsedSet, expandedOverflow, filteredStrutture])
+    setActiveExpansion({ nodeId: codice, snapshot })
+    setFocusedNode(codice)
+  }, [activeExpansion, collapsedSet, childCountMap, filteredStrutture])
 
   const handlePaneClick = useCallback(() => {
-    restoreContextualSnapshot()
+    if (activeExpansion) {
+      setCollapsedSet(activeExpansion.snapshot)
+      setActiveExpansion(null)
+    }
     setFocusedNode(null)
     setDrawerOpen(false)
-  }, [restoreContextualSnapshot])
+  }, [activeExpansion])
 
   return (
     <div className="flex flex-col h-full">
@@ -819,22 +825,37 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
           )}
         </div>
 
-        {viewMode === 'tree' && (
-          <>
-            <button
-              onClick={expandAll}
-              className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5 hover:bg-gray-50 rounded-md transition-colors"
-            >
-              Espandi tutto
-            </button>
-            <button
-              onClick={collapseAll}
-              className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5 hover:bg-gray-50 rounded-md transition-colors"
-            >
-              Comprimi tutto
-            </button>
-          </>
-        )}
+        {/* Unassigned employees toggle */}
+        <button
+          onClick={() => setUnassignedPanelOpen(v => !v)}
+          className={[
+            'relative text-sm px-2 py-1.5 rounded-md transition-colors border flex items-center gap-1.5',
+            unassignedPanelOpen
+              ? 'bg-amber-50 text-amber-700 border-amber-200 font-medium'
+              : 'text-gray-500 border-gray-200 hover:bg-gray-50'
+          ].join(' ')}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>Senza struttura</span>
+          {unassignedCount > 0 && (
+            <span className="ml-0.5 text-xs bg-amber-500 text-white font-semibold px-1.5 py-0.5 rounded-full tabular-nums leading-none">
+              {unassignedCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={expandAll}
+          className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5 hover:bg-gray-50 rounded-md transition-colors"
+        >
+          Espandi tutto
+        </button>
+        <button
+          onClick={collapseAll}
+          className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5 hover:bg-gray-50 rounded-md transition-colors"
+        >
+          Comprimi tutto
+        </button>
 
         <div className="flex-1" />
 
@@ -842,87 +863,90 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
         {focusedNode && (
           <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 rounded-md text-xs text-indigo-700">
             <span className="truncate max-w-[150px]">{focusedLabel}</span>
-            <button onClick={() => {
-              restoreContextualSnapshot()
-              setFocusedNode(null)
-            }}>
+            <button onClick={() => setFocusedNode(null)}>
               <X className="w-3 h-3" />
             </button>
           </div>
         )}
 
-        {/* Color mode selector */}
-        <select
-          value={colorMode}
-          onChange={(e) => setColorMode(e.target.value as ColorMode)}
-          className="text-sm border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white text-gray-700"
+        {/* Dipendenti color toggle */}
+        <button
+          onClick={() => setColorMode(m => m === 'dipendenti' ? 'none' : 'dipendenti')}
+          className={[
+            'text-sm px-2 py-1.5 rounded-md transition-colors border',
+            colorMode === 'dipendenti'
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-medium'
+              : 'text-gray-500 border-gray-200 hover:bg-gray-50'
+          ].join(' ')}
         >
-          <option value="none">Colora per…</option>
-          <option value="sede">Sede</option>
-          <option value="livello">Livello</option>
-          <option value="unita">Unità Org.</option>
-        </select>
+          Evidenzia dipendenti
+        </button>
+
+        {/* Filter: hide units with no employees anywhere */}
+        <button
+          onClick={() => setHideNoEmployees(v => !v)}
+          className={[
+            'text-sm px-2 py-1.5 rounded-md transition-colors border',
+            hideNoEmployees
+              ? 'bg-amber-50 text-amber-700 border-amber-200 font-medium'
+              : 'text-gray-500 border-gray-200 hover:bg-gray-50'
+          ].join(' ')}
+        >
+          {hideNoEmployees ? 'Mostra tutto' : 'Nascondi senza dipendenti'}
+        </button>
 
         {/* LOD badge */}
         <span className="text-xs text-gray-400 px-2 py-1 bg-gray-50 rounded border border-gray-100 tabular-nums">
           {compactMode ? 'Compact' : zoom <= 0.4 ? 'Macro' : zoom <= 0.8 ? 'Standard' : 'Micro'}
         </span>
-
-        {/* View mode toggle */}
-        <div className="flex rounded-md border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => setViewMode('tree')}
-            className={[
-              'px-3 py-1.5 text-sm transition-colors',
-              viewMode === 'tree' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
-            ].join(' ')}
-          >
-            Albero
-          </button>
-          <button
-            onClick={() => setViewMode('sede')}
-            className={[
-              'px-3 py-1.5 text-sm transition-colors border-l border-gray-200',
-              viewMode === 'sede' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
-            ].join(' ')}
-          >
-            Per Sede
-          </button>
-        </div>
-
-        {/* Sede filter (only in tree mode) */}
-        {viewMode === 'tree' && (
-          <select
-            value={sedeFiltro}
-            onChange={(e) => setSedeFiltro(e.target.value)}
-            className="text-sm border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white text-gray-700"
-          >
-            <option value="all">Tutte le sedi</option>
-            {sediList.map((s) => (
-              <option key={s} value={s.toLowerCase()}>
-                {s}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
       {/* Color legend */}
-      {colorMode !== 'none' && colorMap.size > 0 && (
-        <div className="flex flex-wrap gap-2 px-4 py-1.5 bg-gray-50 border-b border-gray-100">
-          {[...colorMap.entries()].map(([val, c]) => (
-            <span key={val} className="flex items-center gap-1 text-xs text-gray-600">
-              <span className="w-3 h-3 rounded-sm" style={{ background: c.border }} />
-              {val || '—'}
-            </span>
-          ))}
+      {colorMode === 'dipendenti' && (
+        <div className="flex gap-4 px-4 py-1.5 bg-gray-50 border-b border-gray-100">
+          <span className="flex items-center gap-1 text-xs text-gray-600">
+            <span className="w-3 h-3 rounded-sm" style={{ background: COLOR_DIPENDENTI_DIRETTI.border }} />
+            Dipendenti diretti
+          </span>
+          <span className="flex items-center gap-1 text-xs text-gray-600">
+            <span className="w-3 h-3 rounded-sm" style={{ background: COLOR_DIPENDENTI_INDIRETTI.border }} />
+            Solo in strutture figlie
+          </span>
+          <span className="flex items-center gap-1 text-xs text-gray-600">
+            <span className="w-3 h-3 rounded-sm" style={{ background: COLOR_NESSUN_DIPENDENTE.border }} />
+            Nessun dipendente
+          </span>
         </div>
       )}
 
       {/* Main area */}
       <div className="flex flex-1 min-h-0">
+        {/* Unassigned panel */}
+        {unassignedPanelOpen && (
+          <UnassignedPanel
+            strutture={strutture}
+            onClose={() => setUnassignedPanelOpen(false)}
+            onAssigned={refreshAll}
+          />
+        )}
+
         {/* Canvas */}
         <div className="flex-1 min-w-0 relative">
+          {/* Accordion mode banner */}
+          {activeExpansion && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10
+                            bg-indigo-600 text-white text-xs px-3 py-1 rounded-full
+                            flex items-center gap-2 shadow-md pointer-events-auto">
+              <span>Vista contestuale attiva</span>
+              <button onClick={handlePaneClick} className="underline">Ripristina</button>
+            </div>
+          )}
+          {/* Layout mode HUD */}
+          {activeLayoutModes.length > 0 && (
+            <div className="absolute top-2 left-2 z-10 pointer-events-none">
+              <LayoutHUD activeLayoutModes={activeLayoutModes} />
+            </div>
+          )}
           <ReactFlow
             nodes={nodes}
             edges={edges}

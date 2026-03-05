@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { Search, ChevronDown, Trash2, Edit2, GripVertical } from 'lucide-react'
+import { Search, ChevronDown, Trash2, Edit2, GripVertical, Users, X } from 'lucide-react'
 import {
   DndContext,
   DragEndEvent,
@@ -145,131 +145,118 @@ function AccordionStruturaItem({
   onDeleteDipendente,
   compact,
 }: AccordionStruturaItemProps) {
+  const { struttura, children, dipendenti } = treeNode
+
   return (
-    <DroppableStruttura codice={treeNode.struttura.codice}>
-      <Accordion.Item value={treeNode.struttura.codice} className="border-b border-gray-200">
-        <Accordion.Trigger className="w-full p-3 hover:bg-gray-50 transition-colors flex items-center justify-between data-[state=open]:bg-gray-50">
-          <DraggableStruttura codice={treeNode.struttura.codice}>
-            <div className="flex items-center justify-between w-full pr-2">
-              <div className="flex items-center flex-1 min-w-0 text-left">
-                <ChevronDown className="w-4 h-4 mr-2 flex-shrink-0 transition-transform" />
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900">{treeNode.struttura.codice}</div>
-                  {!compact && (
-                    <div className="text-sm text-gray-600 truncate">{treeNode.struttura.descrizione}</div>
-                  )}
-                </div>
-              </div>
-              {(treeNode.dipendenti.length > 0 || treeNode.children.length > 0) && (
-                <span className="ml-2 text-xs text-gray-500 flex-shrink-0">
-                  {treeNode.dipendenti.length > 0 && `${treeNode.dipendenti.length} dip.`}
-                  {treeNode.children.length > 0 && ` ${treeNode.children.length} sub.`}
+    <DroppableStruttura codice={struttura.codice}>
+      <Accordion.Item value={struttura.codice} className="border-b border-gray-100 last:border-0">
+
+        {/* Header: trigger (flex-1) + action buttons outside trigger to avoid nested <button> */}
+        <div className="flex items-stretch">
+          <Accordion.Trigger className="flex-1 min-w-0 text-left hover:bg-gray-50 data-[state=open]:bg-indigo-50/40 transition-colors">
+            <DraggableStruttura codice={struttura.codice}>
+              <div className="flex items-center gap-2 px-3 py-2 min-w-0">
+                <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-gray-400 transition-transform" />
+                <span className="font-mono text-xs font-semibold text-gray-500 flex-shrink-0 tabular-nums">
+                  {struttura.codice}
                 </span>
-              )}
-            </div>
-          </DraggableStruttura>
-        </Accordion.Trigger>
-
-        <Accordion.Content className="p-3 bg-gray-50">
-          <div className="space-y-3">
-            {/* Struttura card */}
-            <div>
-              <div className="text-xs font-semibold text-gray-700 px-3 mb-2">Struttura</div>
-              <div className="py-2 px-3 bg-white border border-gray-200 rounded-md shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900">{treeNode.struttura.codice}</div>
-                    {!compact && (
-                      <>
-                        <div className="text-sm text-gray-600 truncate">{treeNode.struttura.descrizione}</div>
-                        {treeNode.struttura.titolare && (
-                          <div className="text-xs text-gray-500">Titolare: {treeNode.struttura.titolare}</div>
-                        )}
-                        {treeNode.struttura.cdc_costo && (
-                          <div className="text-xs text-gray-500">CdC: {treeNode.struttura.cdc_costo}</div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-                    <button
-                      onClick={() => onEditStruttura(treeNode.struttura)}
-                      className="text-xs p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                      title="Modifica"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => onDeleteStruttura(treeNode.struttura)}
-                      className="text-xs p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                      title="Elimina"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+                <span className="text-sm font-medium text-gray-900 truncate flex-1">
+                  {struttura.descrizione}
+                </span>
+                {!compact && struttura.titolare && (
+                  <span className="text-xs text-gray-400 truncate hidden sm:block max-w-[160px] flex-shrink-0">
+                    {struttura.titolare}
+                  </span>
+                )}
+                {!compact && struttura.cdc_costo && (
+                  <span className="font-mono text-xs text-gray-300 hidden md:block flex-shrink-0">
+                    {struttura.cdc_costo}
+                  </span>
+                )}
+                {dipendenti.length > 0 && (
+                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full tabular-nums flex-shrink-0">
+                    {dipendenti.length} dip.
+                  </span>
+                )}
+                {children.length > 0 && (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full tabular-nums flex-shrink-0">
+                    {children.length} sub.
+                  </span>
+                )}
               </div>
-            </div>
+            </DraggableStruttura>
+          </Accordion.Trigger>
 
-            {/* Dipendenti */}
-            {treeNode.dipendenti.length > 0 && (
-              <div>
-                <div className="text-xs font-semibold text-gray-700 px-3 mb-2">Dipendenti ({treeNode.dipendenti.length})</div>
-                <div className="space-y-2">
-                  {treeNode.dipendenti.map((d) => (
-                    <DraggableDipendente key={d.codice_fiscale} cf={d.codice_fiscale}>
-                      <div className="py-2 px-3 bg-blue-50 border border-blue-200 rounded-md ml-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-gray-900">{d.codice_fiscale}</div>
-                            {!compact && d.titolare && (
-                              <div className="text-sm text-gray-600">{d.titolare}</div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-                            <button
-                              onClick={() => onEditDipendente(d)}
-                              className="text-xs p-1.5 text-blue-600 hover:bg-blue-200 rounded transition-colors"
-                              title="Modifica"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => onDeleteDipendente(d)}
-                              className="text-xs p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Elimina"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </DraggableDipendente>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Child structures — recursive */}
-            {treeNode.children.length > 0 && (
-              <div>
-                <div className="text-xs font-semibold text-gray-700 px-3 mb-2">Sottostrutture ({treeNode.children.length})</div>
-                <Accordion.Root type="single" collapsible className="border border-gray-200 rounded-md">
-                  {treeNode.children.map((child) => (
-                    <AccordionStruturaItem
-                      key={child.struttura.codice}
-                      treeNode={child}
-                      onEditStruttura={onEditStruttura}
-                      onDeleteStruttura={onDeleteStruttura}
-                      onEditDipendente={onEditDipendente}
-                      onDeleteDipendente={onDeleteDipendente}
-                      compact={compact}
-                    />
-                  ))}
-                </Accordion.Root>
-              </div>
-            )}
+          {/* Action buttons — sibling of trigger, not nested inside */}
+          <div className="flex items-center gap-0.5 px-2 border-l border-gray-100 flex-shrink-0 bg-white">
+            <button
+              onClick={() => onEditStruttura(struttura)}
+              className="p-1.5 text-gray-300 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+              title="Modifica"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onDeleteStruttura(struttura)}
+              className="p-1.5 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+              title="Elimina"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
+        </div>
+
+        <Accordion.Content>
+          {/* Dipendenti — compact single-line rows */}
+          {dipendenti.length > 0 && (
+            <div className="border-t border-blue-100/60 bg-blue-50/30 px-3 py-1.5">
+              <div className="space-y-0.5">
+                {dipendenti.map((d) => (
+                  <DraggableDipendente key={d.codice_fiscale} cf={d.codice_fiscale}>
+                    <div className="flex items-center gap-2 px-2 py-1 bg-white rounded border border-blue-100 text-xs">
+                      <span className="font-mono text-gray-400 flex-shrink-0 tabular-nums">{d.codice_fiscale}</span>
+                      {d.titolare && (
+                        <span className="text-gray-700 flex-1 truncate">{d.titolare}</span>
+                      )}
+                      <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto">
+                        <button
+                          onClick={() => onEditDipendente(d)}
+                          className="p-1 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title="Modifica"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteDipendente(d)}
+                          className="p-1 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Elimina"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </DraggableDipendente>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Child structures — recursive, indented */}
+          {children.length > 0 && (
+            <Accordion.Root type="single" collapsible className="border-t border-gray-100 pl-5 border-l-2 border-l-indigo-100 ml-3">
+              {children.map((child) => (
+                <AccordionStruturaItem
+                  key={child.struttura.codice}
+                  treeNode={child}
+                  onEditStruttura={onEditStruttura}
+                  onDeleteStruttura={onDeleteStruttura}
+                  onEditDipendente={onEditDipendente}
+                  onDeleteDipendente={onDeleteDipendente}
+                  compact={compact}
+                />
+              ))}
+            </Accordion.Root>
+          )}
         </Accordion.Content>
       </Accordion.Item>
     </DroppableStruttura>
@@ -292,6 +279,7 @@ export default function AccordionView() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerRecord, setDrawerRecord] = useState<(Struttura & { dipendenti_count: number }) | Dipendente | null>(null)
   const [drawerType, setDrawerType] = useState<'struttura' | 'dipendente'>('struttura')
+  const [unassignedPanelOpen, setUnassignedPanelOpen] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -361,6 +349,11 @@ export default function AccordionView() {
       search ? searchDipendentiResults : undefined
     ),
     [filteredStrutture, filteredDipendenti, search, searchResults, searchDipendentiResults]
+  )
+
+  const unassignedDipendenti = useMemo(
+    () => dipendenti.filter(d => !d.deleted_at && !d.codice_struttura?.trim()),
+    [dipendenti]
   )
 
   // ── Drag end: set pendingMove instead of saving directly ─────────────────
@@ -504,9 +497,9 @@ export default function AccordionView() {
   }, [pendingMove])
 
   return (
-    <div className="flex flex-col h-full gap-4 p-4 bg-white">
+    <div className="flex flex-col h-full min-h-0 gap-0 bg-white">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 pb-3 border-b border-gray-200">
+      <div className="flex items-center gap-3 flex-wrap px-4 py-2.5 border-b border-gray-200 flex-shrink-0">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -540,43 +533,110 @@ export default function AccordionView() {
           {compact ? 'Compatto' : 'Esteso'}
         </button>
 
+        {/* Unassigned employees toggle */}
+        <button
+          onClick={() => setUnassignedPanelOpen(v => !v)}
+          className={[
+            'flex items-center gap-1.5 text-sm px-3 py-2 rounded-md transition-colors border',
+            unassignedPanelOpen
+              ? 'bg-amber-50 text-amber-700 border-amber-200'
+              : 'border-gray-200 text-gray-500 hover:bg-gray-50',
+          ].join(' ')}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>Senza struttura</span>
+          {unassignedDipendenti.length > 0 && (
+            <span className="text-xs bg-amber-500 text-white font-semibold px-1.5 py-0.5 rounded-full tabular-nums leading-none">
+              {unassignedDipendenti.length}
+            </span>
+          )}
+        </button>
+
         <span className="text-xs text-gray-400 ml-auto">
           ≡ Trascina per spostare strutture e dipendenti
         </span>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto">
-        {treeData.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-gray-400">Nessuna struttura trovata</p>
+      {/* Content — DndContext wraps both panel and accordion so drags cross boundaries */}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+
+          {/* Unassigned panel */}
+          {unassignedPanelOpen && (
+            <div className="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-white">
+              <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <Users className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="text-xs font-semibold text-gray-700">Senza struttura</span>
+                  {unassignedDipendenti.length > 0 && (
+                    <span className="text-xs bg-amber-100 text-amber-700 font-medium px-1.5 py-0.5 rounded-full tabular-nums">
+                      {unassignedDipendenti.length}
+                    </span>
+                  )}
+                </div>
+                <button onClick={() => setUnassignedPanelOpen(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {unassignedDipendenti.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-center px-4">
+                  <span className="text-2xl mb-1">✓</span>
+                  <p className="text-xs text-gray-400">Tutti i dipendenti hanno una struttura</p>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                  <p className="text-xs text-gray-400 px-1 pb-1">
+                    Trascina un dipendente su una struttura per assegnarlo
+                  </p>
+                  {unassignedDipendenti.map((d) => (
+                    <DraggableDipendente key={d.codice_fiscale} cf={d.codice_fiscale}>
+                      <div className="flex flex-col px-2.5 py-2 bg-white border border-gray-200 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:border-amber-300 hover:bg-amber-50/30 transition-colors">
+                        <span className="text-xs font-medium text-gray-800 truncate">
+                          {d.titolare || '—'}
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-mono mt-0.5">{d.codice_fiscale}</span>
+                      </div>
+                    </DraggableDipendente>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Accordion area */}
+          <div className="flex-1 overflow-auto p-4">
+            {treeData.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-400">Nessuna struttura trovata</p>
+              </div>
+            ) : (
+              <Accordion.Root type="single" collapsible className="space-y-2">
+                {treeData.map((rootNode) => (
+                  <AccordionStruturaItem
+                    key={rootNode.struttura.codice}
+                    treeNode={rootNode}
+                    onEditStruttura={(s) => {
+                      setDrawerType('struttura')
+                      setDrawerRecord(s)
+                      setDrawerOpen(true)
+                    }}
+                    onDeleteStruttura={handleDeleteStruttura}
+                    onEditDipendente={(d) => {
+                      setDrawerType('dipendente')
+                      setDrawerRecord(d)
+                      setDrawerOpen(true)
+                    }}
+                    onDeleteDipendente={handleDeleteDipendente}
+                    compact={compact}
+                  />
+                ))}
+              </Accordion.Root>
+            )}
           </div>
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <Accordion.Root type="single" collapsible className="space-y-2">
-              {treeData.map((rootNode) => (
-                <AccordionStruturaItem
-                  key={rootNode.struttura.codice}
-                  treeNode={rootNode}
-                  onEditStruttura={(s) => {
-                    setDrawerType('struttura')
-                    setDrawerRecord(s)
-                    setDrawerOpen(true)
-                  }}
-                  onDeleteStruttura={handleDeleteStruttura}
-                  onEditDipendente={(d) => {
-                    setDrawerType('dipendente')
-                    setDrawerRecord(d)
-                    setDrawerOpen(true)
-                  }}
-                  onDeleteDipendente={handleDeleteDipendente}
-                  compact={compact}
-                />
-              ))}
-            </Accordion.Root>
-          </DndContext>
-        )}
-      </div>
+
+        </div>
+      </DndContext>
 
       {/* Confirm Dialog — delete */}
       {confirmDialog && (

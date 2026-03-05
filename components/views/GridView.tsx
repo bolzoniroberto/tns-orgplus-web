@@ -1,10 +1,10 @@
 'use client'
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import type { ColDef, ICellRendererParams, CellValueChangedEvent } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
-import { ChevronRight, Plus, Search, Eye, EyeOff } from 'lucide-react'
+import { ChevronRight, Plus, Search, Eye, EyeOff, SlidersHorizontal } from 'lucide-react'
 import { useOrgStore } from '@/store/useOrgStore'
 import { api } from '@/lib/api'
 import type { Struttura, Dipendente } from '@/types'
@@ -13,6 +13,77 @@ import RecordDrawer from '@/components/shared/RecordDrawer'
 type SubTab = 'strutture' | 'dipendenti' | 'orfani_dipendenti' | 'orfani_strutture' | 'strutture_vuote'
 
 const isStrutturaTab = (t: SubTab) => t === 'strutture' || t === 'orfani_strutture' || t === 'strutture_vuote'
+
+interface ColDescriptor {
+  field: string
+  label: string
+  colDef: Omit<ColDef, 'field' | 'headerName'>
+}
+
+const STRUTTURE_ALL_COLS: ColDescriptor[] = [
+  { field: 'codice',                  label: 'Codice',                colDef: { width: 110, sortable: true, editable: false, suppressFillHandle: true, cellClass: 'font-mono text-xs text-gray-600' } },
+  { field: 'descrizione',             label: 'Descrizione',           colDef: { flex: 2,    sortable: true, editable: true,  cellClass: 'text-sm font-medium text-gray-900' } },
+  { field: 'codice_padre',            label: 'Padre',                 colDef: { width: 100, sortable: true, editable: true,  cellClass: 'font-mono text-xs text-gray-500' } },
+  { field: 'cdc_costo',               label: 'CdC Costo',             colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'titolare',                label: 'Titolare',              colDef: { flex: 1.5,  sortable: true, editable: true,  cellClass: 'text-sm text-gray-600' } },
+  { field: 'livello',                 label: 'Livello',               colDef: { width: 100, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'unita_organizzativa',     label: 'Unità Org.',            colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'approvatore',             label: 'Approvatore',           colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'cassiere',                label: 'Cassiere',              colDef: { width: 100, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'viaggiatore',             label: 'Viaggiatore',           colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segr_redaz',              label: 'Segr. Redaz.',          colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segretario',              label: 'Segretario',            colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'controllore',             label: 'Controllore',           colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'visualizzatori',          label: 'Visualizzatori',        colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'amministrazione',         label: 'Amministrazione',       colDef: { width: 140, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segr_red_assistita',      label: 'Segr. Red. Assist.',    colDef: { width: 155, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segretario_assistito',    label: 'Segretario Assist.',    colDef: { width: 145, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'controllore_assistito',   label: 'Controllore Assist.',   colDef: { width: 145, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli_oltre_v',           label: 'Ruoli Oltre V',         colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli',                   label: 'Ruoli',                 colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli_afc',               label: 'Ruoli AFC',             colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli_hr',                label: 'Ruoli HR',              colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'altri_ruoli',             label: 'Altri Ruoli',           colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'sede_tns',                label: 'Sede',                  colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'gruppo_sind',             label: 'Gruppo Sind.',          colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'dipendenti_count',        label: '# Dip.',                colDef: { width: 80,  sortable: true, editable: false, suppressFillHandle: true, filter: 'agNumberColumnFilter', cellClass: 'text-xs text-gray-500 text-center', type: 'numericColumn' } },
+]
+
+const STRUTTURE_DEFAULT_VISIBLE = new Set([
+  'codice', 'descrizione', 'cdc_costo', 'codice_padre', 'titolare', 'approvatore', 'sede_tns', 'dipendenti_count',
+])
+
+const DIPENDENTI_ALL_COLS: ColDescriptor[] = [
+  { field: 'codice_fiscale',          label: 'CF',                    colDef: { width: 160, sortable: true, editable: false, suppressFillHandle: true, cellClass: 'font-mono text-xs text-gray-500' } },
+  { field: 'titolare',                label: 'Titolare',              colDef: { flex: 2,    sortable: true, editable: true,  cellClass: 'text-sm font-medium text-gray-900' } },
+  { field: 'codice_struttura',        label: 'Struttura',             colDef: { width: 120, sortable: true, editable: true,  cellClass: 'font-mono text-xs text-gray-600' } },
+  { field: 'codice_nel_file',         label: 'Cod. File',             colDef: { width: 110, sortable: true, editable: true,  cellClass: 'font-mono text-xs text-gray-500' } },
+  { field: 'unita_organizzativa',     label: 'Unità Org.',            colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'cdc_costo',               label: 'CdC Costo',             colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'livello',                 label: 'Livello',               colDef: { width: 100, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'approvatore',             label: 'Approvatore',           colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'cassiere',                label: 'Cassiere',              colDef: { width: 100, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'viaggiatore',             label: 'Viaggiatore',           colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segr_redaz',              label: 'Segr. Redaz.',          colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segretario',              label: 'Segretario',            colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'controllore',             label: 'Controllore',           colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'visualizzatori',          label: 'Visualizzatori',        colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'amministrazione',         label: 'Amministrazione',       colDef: { width: 140, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segr_red_assistita',      label: 'Segr. Red. Assist.',    colDef: { width: 155, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'segretario_assistito',    label: 'Segretario Assist.',    colDef: { width: 145, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'controllore_assistito',   label: 'Controllore Assist.',   colDef: { width: 145, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli_oltre_v',           label: 'Ruoli Oltre V',         colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli',                   label: 'Ruoli',                 colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli_afc',               label: 'Ruoli AFC',             colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'ruoli_hr',                label: 'Ruoli HR',              colDef: { width: 110, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'altri_ruoli',             label: 'Altri Ruoli',           colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-600' } },
+  { field: 'sede_tns',                label: 'Sede',                  colDef: { width: 120, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+  { field: 'gruppo_sind',             label: 'Gruppo Sind.',          colDef: { width: 130, sortable: true, editable: true,  cellClass: 'text-xs text-gray-500' } },
+]
+
+const DIPENDENTI_DEFAULT_VISIBLE = new Set([
+  'codice_fiscale', 'titolare', 'codice_struttura', 'viaggiatore', 'approvatore', 'cassiere', 'sede_tns',
+])
 
 export default function GridView() {
   const { strutture, dipendenti, refreshAll, showToast } = useOrgStore()
@@ -24,6 +95,20 @@ export default function GridView() {
   const [drawerType, setDrawerType] = useState<'struttura' | 'dipendente'>('struttura')
   const [drawerRecord, setDrawerRecord] = useState<(Struttura & { dipendenti_count?: number }) | Dipendente | null>(null)
   const [drawerMode, setDrawerMode] = useState<'view' | 'edit' | 'create'>('view')
+  const [visibleStruttureColumns, setVisibleStruttureColumns] = useState<Set<string>>(new Set(STRUTTURE_DEFAULT_VISIBLE))
+  const [visibleDipendentiColumns, setVisibleDipendentiColumns] = useState<Set<string>>(new Set(DIPENDENTI_DEFAULT_VISIBLE))
+  const [colPickerOpen, setColPickerOpen] = useState(false)
+  const colPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!colPickerOpen) return
+    const handler = (e: MouseEvent) => {
+      if (colPickerRef.current && !colPickerRef.current.contains(e.target as Node))
+        setColPickerOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [colPickerOpen])
 
   const sediList = useMemo(() => {
     const all = new Set<string>()
@@ -93,16 +178,11 @@ export default function GridView() {
   const struttureCols: ColDef[] = useMemo(
     () => [
       { headerCheckboxSelection: true, checkboxSelection: true, width: 40, minWidth: 40, maxWidth: 40, pinned: 'left' as const, sortable: false, filter: false, floatingFilter: false, editable: false, suppressFillHandle: true, resizable: false, suppressMovable: true },
-      { field: 'codice', headerName: 'Codice', width: 110, sortable: true, editable: false, suppressFillHandle: true, cellClass: 'font-mono text-xs text-gray-600' },
-      { field: 'descrizione', headerName: 'Descrizione', flex: 2, sortable: true, editable: true, cellClass: 'text-sm font-medium text-gray-900' },
-      { field: 'cdc_costo', headerName: 'CdC', width: 110, sortable: true, editable: true, cellClass: 'text-xs text-gray-500' },
-      { field: 'codice_padre', headerName: 'Padre', width: 100, sortable: true, editable: true, cellClass: 'font-mono text-xs text-gray-500' },
-      { field: 'titolare', headerName: 'Titolare', flex: 1.5, sortable: true, editable: true, cellClass: 'text-sm text-gray-600' },
-      { field: 'approvatore', headerName: 'Approvatore', width: 130, sortable: true, editable: true, cellClass: 'text-xs text-gray-600' },
-      { field: 'sede_tns', headerName: 'Sede', width: 120, sortable: true, editable: true, cellClass: 'text-xs text-gray-500' },
-      { field: 'dipendenti_count', headerName: '# Dip.', width: 80, sortable: true, editable: false, filter: 'agNumberColumnFilter', suppressFillHandle: true, cellClass: 'text-xs text-gray-500 text-center', type: 'numericColumn' },
+      ...STRUTTURE_ALL_COLS
+        .filter(c => visibleStruttureColumns.has(c.field))
+        .map(c => ({ field: c.field, headerName: c.label, ...c.colDef } as ColDef)),
       {
-        headerName: '', width: 46, pinned: 'right', sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
+        headerName: '', width: 46, pinned: 'right' as const, sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
         cellRenderer: (params: ICellRendererParams) => (
           <button onClick={() => openDrawer('struttura', params.data, 'view')} className="flex items-center justify-center w-full h-full text-gray-300 hover:text-gray-600">
             <ChevronRight className="w-4 h-4" />
@@ -110,21 +190,17 @@ export default function GridView() {
         )
       }
     ],
-    [openDrawer]
+    [openDrawer, visibleStruttureColumns]
   )
 
   const dipendentiCols: ColDef[] = useMemo(
     () => [
       { headerCheckboxSelection: true, checkboxSelection: true, width: 40, minWidth: 40, maxWidth: 40, pinned: 'left' as const, sortable: false, filter: false, floatingFilter: false, editable: false, suppressFillHandle: true, resizable: false, suppressMovable: true },
-      { field: 'codice_fiscale', headerName: 'CF', width: 160, sortable: true, editable: false, suppressFillHandle: true, cellClass: 'font-mono text-xs text-gray-500' },
-      { field: 'titolare', headerName: 'Titolare', flex: 2, sortable: true, editable: true, cellClass: 'text-sm font-medium text-gray-900' },
-      { field: 'codice_struttura', headerName: 'Struttura', width: 120, sortable: true, editable: true, cellClass: 'font-mono text-xs text-gray-600' },
-      { field: 'viaggiatore', headerName: 'Viaggiatore', width: 120, sortable: true, editable: true, cellClass: 'text-xs text-gray-600' },
-      { field: 'approvatore', headerName: 'Approvatore', width: 130, sortable: true, editable: true, cellClass: 'text-xs text-gray-600' },
-      { field: 'cassiere', headerName: 'Cassiere', width: 100, sortable: true, editable: true, cellClass: 'text-xs text-gray-600' },
-      { field: 'sede_tns', headerName: 'Sede', width: 120, sortable: true, editable: true, cellClass: 'text-xs text-gray-500' },
+      ...DIPENDENTI_ALL_COLS
+        .filter(c => visibleDipendentiColumns.has(c.field))
+        .map(c => ({ field: c.field, headerName: c.label, ...c.colDef } as ColDef)),
       {
-        headerName: '', width: 46, pinned: 'right', sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
+        headerName: '', width: 46, pinned: 'right' as const, sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
         cellRenderer: (params: ICellRendererParams) => (
           <button onClick={() => openDrawer('dipendente', params.data, 'view')} className="flex items-center justify-center w-full h-full text-gray-300 hover:text-gray-600">
             <ChevronRight className="w-4 h-4" />
@@ -132,8 +208,24 @@ export default function GridView() {
         )
       }
     ],
-    [openDrawer]
+    [openDrawer, visibleDipendentiColumns]
   )
+
+  // Derived helpers for the column picker (re-evaluated each render, not memoized — trivial cost)
+  const isStrTab = isStrutturaTab(subTab)
+  const currentAllCols = isStrTab ? STRUTTURE_ALL_COLS : DIPENDENTI_ALL_COLS
+  const currentVisible = isStrTab ? visibleStruttureColumns : visibleDipendentiColumns
+  const setCurrentVisible = isStrTab ? setVisibleStruttureColumns : setVisibleDipendentiColumns
+
+  const toggleColumn = useCallback((field: string) => {
+    const setter = isStrutturaTab(subTab) ? setVisibleStruttureColumns : setVisibleDipendentiColumns
+    setter(prev => {
+      const next = new Set(prev)
+      if (next.has(field)) next.delete(field)
+      else next.add(field)
+      return next
+    })
+  }, [subTab])
 
   const struttureCodici = useMemo(
     () => new Set(strutture.filter((s) => !s.deleted_at).map((s) => s.codice)),
@@ -205,7 +297,7 @@ export default function GridView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-white border-b border-gray-200">
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-white border-b border-gray-200 flex-wrap">
         <div className="flex gap-1 flex-wrap">
           {(['strutture', 'dipendenti'] as const).map((tab) => (
             <button key={tab} onClick={() => setSubTab(tab)} className={['px-3 py-1.5 text-sm rounded-md transition-colors', subTab === tab ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'].join(' ')}>
@@ -236,6 +328,66 @@ export default function GridView() {
             {sediList.map((s) => <option key={s} value={s.toLowerCase()}>{s}</option>)}
           </select>
         )}
+
+        {/* Column visibility picker */}
+        <div className="relative" ref={colPickerRef}>
+          <button
+            onClick={() => setColPickerOpen(v => !v)}
+            className={[
+              'flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border transition-colors',
+              colPickerOpen
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                : 'border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            ].join(' ')}
+            title="Scegli colonne visibili"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Colonne</span>
+            <span className="text-xs bg-gray-100 text-gray-600 px-1.5 rounded-full tabular-nums leading-none py-0.5">
+              {currentVisible.size}
+            </span>
+          </button>
+
+          {colPickerOpen && (
+            <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-xl w-72 max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 flex-shrink-0">
+                <span className="text-xs font-semibold text-gray-700">Colonne visibili</span>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setCurrentVisible(new Set(currentAllCols.map(c => c.field)))}
+                    className="text-xs text-indigo-600 hover:underline"
+                  >
+                    Tutte
+                  </button>
+                  <button
+                    onClick={() => setCurrentVisible(new Set())}
+                    className="text-xs text-gray-400 hover:underline"
+                  >
+                    Nessuna
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-y-auto flex-1 p-2">
+                <div className="grid grid-cols-2 gap-0.5">
+                  {currentAllCols.map(col => (
+                    <label
+                      key={col.field}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer select-none"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={currentVisible.has(col.field)}
+                        onChange={() => toggleColumn(col.field)}
+                        className="accent-indigo-600 w-3.5 h-3.5 flex-shrink-0"
+                      />
+                      <span className="text-xs text-gray-700 truncate">{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {isMainTab && (
           <button onClick={() => setShowDeleted((v) => !v)} className={['flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border transition-colors', showDeleted ? 'bg-red-50 border-red-200 text-red-700' : 'border-gray-200 text-gray-500 hover:text-gray-700'].join(' ')} title={showDeleted ? 'Nascondi eliminati' : 'Mostra eliminati'}>
