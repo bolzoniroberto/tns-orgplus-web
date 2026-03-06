@@ -42,6 +42,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ cf: 
     }
   }
 
+  // Merge extra_data patch if provided
+  if (data.extra_data_patch && typeof data.extra_data_patch === 'object') {
+    const patch = data.extra_data_patch as Record<string, string>
+    const currentExtra = JSON.parse(String(current.extra_data || '{}')) as Record<string, string>
+    const mergedExtra = { ...currentExtra, ...patch }
+    db().prepare(`UPDATE dipendenti SET extra_data = ?, updated_at = CURRENT_TIMESTAMP WHERE codice_fiscale = ?`)
+      .run(JSON.stringify(mergedExtra), cf)
+    for (const [key, val] of Object.entries(patch)) {
+      const oldVal = currentExtra[key] ?? null
+      const newVal = val || null
+      if (String(oldVal ?? '') !== String(newVal ?? '')) {
+        writeChangeLog('dipendente', cf, (current.titolare as string) ?? cf, 'UPDATE', key, oldVal, newVal)
+      }
+    }
+  }
+
   return NextResponse.json({ success: true })
 }
 

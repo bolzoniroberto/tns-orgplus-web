@@ -2,7 +2,7 @@
  * Client-side API wrapper — same interface as window.api in Electron,
  * but uses fetch() to call Next.js API routes.
  */
-import type { Struttura, Dipendente, ChangeLogEntry, ImportReport, DeleteResult, StrutturaCounts } from '../types'
+import type { Struttura, Dipendente, ChangeLogEntry, ImportReport, DeleteResult, StrutturaCounts, CustomField, EnrichmentConfig, EnrichmentDiff } from '../types'
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -149,6 +149,36 @@ export const api = {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+    },
+  },
+
+  enrich: {
+    countMatches: (entityType: 'dipendente' | 'struttura', idColumn: string, rows: Record<string, string>[]): Promise<{ matched: number; total: number }> =>
+      fetch('/api/enrich/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entityType, idColumn, rows, countOnly: true }),
+      }).then(r => json(r)),
+
+    preview: (config: EnrichmentConfig, rows: Record<string, string>[]): Promise<{ diffs: EnrichmentDiff[] }> =>
+      fetch('/api/enrich/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...config, rows }),
+      }).then(r => json(r)),
+
+    apply: (config: EnrichmentConfig, diffs: EnrichmentDiff[]): Promise<{ applied: number; skipped: number; errors: string[] }> =>
+      fetch('/api/enrich/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config, diffs }),
+      }).then(r => json(r)),
+  },
+
+  customFields: {
+    list: (entityType?: string): Promise<CustomField[]> => {
+      const params = entityType ? `?entityType=${encodeURIComponent(entityType)}` : ''
+      return fetch(`/api/custom-fields${params}`).then(r => json(r))
     },
   },
 

@@ -117,5 +117,22 @@ function createSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_dipendenti_deleted ON dipendenti(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_changelog_timestamp ON change_log(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_changelog_entity ON change_log(entity_type, entity_id);
+
+    CREATE TABLE IF NOT EXISTS custom_fields (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type  TEXT NOT NULL,
+      field_key    TEXT NOT NULL UNIQUE,
+      field_label  TEXT NOT NULL,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `)
+
+  // Idempotent migrations: add extra_data columns if not present
+  for (const table of ['dipendenti', 'strutture']) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN extra_data TEXT NOT NULL DEFAULT '{}'`)
+    } catch {
+      // Column already exists — ignore
+    }
+  }
 }

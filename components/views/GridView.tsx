@@ -7,7 +7,7 @@ import 'ag-grid-community/styles/ag-theme-alpine.css'
 import { ChevronRight, Plus, Search, Eye, EyeOff, SlidersHorizontal } from 'lucide-react'
 import { useOrgStore } from '@/store/useOrgStore'
 import { api } from '@/lib/api'
-import type { Struttura, Dipendente } from '@/types'
+import type { Struttura, Dipendente, CustomField } from '@/types'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 
 type SubTab = 'strutture' | 'dipendenti' | 'orfani_dipendenti' | 'orfani_strutture' | 'strutture_vuote'
@@ -17,6 +17,7 @@ const isStrutturaTab = (t: SubTab) => t === 'strutture' || t === 'orfani_struttu
 interface ColDescriptor {
   field: string
   label: string
+  isCustom?: boolean
   colDef: Omit<ColDef, 'field' | 'headerName'>
 }
 
@@ -85,6 +86,9 @@ const DIPENDENTI_DEFAULT_VISIBLE = new Set([
   'codice_fiscale', 'titolare', 'codice_struttura', 'viaggiatore', 'approvatore', 'cassiere', 'sede_tns',
 ])
 
+// Custom field AG Grid field prefix
+const CUSTOM_PREFIX = '__cf__'
+
 export default function GridView() {
   const { strutture, dipendenti, refreshAll, showToast } = useOrgStore()
   const [subTab, setSubTab] = useState<SubTab>('strutture')
@@ -99,6 +103,57 @@ export default function GridView() {
   const [visibleDipendentiColumns, setVisibleDipendentiColumns] = useState<Set<string>>(new Set(DIPENDENTI_DEFAULT_VISIBLE))
   const [colPickerOpen, setColPickerOpen] = useState(false)
   const colPickerRef = useRef<HTMLDivElement>(null)
+
+  // Custom fields loaded from DB
+  const [struttureCustomFields, setStruttureCustomFields] = useState<CustomField[]>([])
+  const [dipendentiCustomFields, setDipendentiCustomFields] = useState<CustomField[]>([])
+
+  // Load custom fields for both entity types
+  useEffect(() => {
+    api.customFields.list('struttura').then(fields => {
+      setStruttureCustomFields(fields)
+      // Auto-show newly-loaded custom field columns
+      if (fields.length > 0) {
+        setVisibleStruttureColumns(prev => {
+          const next = new Set(prev)
+          fields.forEach(f => next.add(CUSTOM_PREFIX + f.field_key))
+          return next
+        })
+      }
+    }).catch(() => {})
+
+    api.customFields.list('dipendente').then(fields => {
+      setDipendentiCustomFields(fields)
+      if (fields.length > 0) {
+        setVisibleDipendentiColumns(prev => {
+          const next = new Set(prev)
+          fields.forEach(f => next.add(CUSTOM_PREFIX + f.field_key))
+          return next
+        })
+      }
+    }).catch(() => {})
+  }, [])
+
+  // Build ColDescriptors for custom fields
+  const struttureCustomCols: ColDescriptor[] = useMemo(() =>
+    struttureCustomFields.map(cf => ({
+      field: CUSTOM_PREFIX + cf.field_key,
+      label: cf.field_label,
+      isCustom: true,
+      colDef: { width: 140, sortable: true, editable: true, cellClass: 'text-xs text-violet-700 dark:text-violet-400' },
+    })),
+    [struttureCustomFields]
+  )
+
+  const dipendentiCustomCols: ColDescriptor[] = useMemo(() =>
+    dipendentiCustomFields.map(cf => ({
+      field: CUSTOM_PREFIX + cf.field_key,
+      label: cf.field_label,
+      isCustom: true,
+      colDef: { width: 140, sortable: true, editable: true, cellClass: 'text-xs text-violet-700 dark:text-violet-400' },
+    })),
+    [dipendentiCustomFields]
+  )
 
   useEffect(() => {
     if (!colPickerOpen) return
@@ -129,6 +184,16 @@ export default function GridView() {
 
   const saveCell = useCallback(
     async (field: string, value: string, data: Struttura | Dipendente) => {
+      // Custom field: update extra_data via patch
+      if (field.startsWith(CUSTOM_PREFIX)) {
+        const realKey = field.slice(CUSTOM_PREFIX.length)
+        if (isStrutturaTab(subTab)) {
+          return api.strutture.update((data as Struttura).codice, { extra_data_patch: { [realKey]: value } } as Partial<Struttura>)
+        } else {
+          return api.dipendenti.update((data as Dipendente).codice_fiscale, { extra_data_patch: { [realKey]: value } } as Partial<Dipendente>)
+        }
+      }
+      // Standard field
       if (isStrutturaTab(subTab)) {
         return api.strutture.update((data as Struttura).codice, { [field]: value })
       } else {
@@ -162,9 +227,11 @@ export default function GridView() {
             })
           )
           await Promise.all(promises)
-          showToast(`"${field}" aggiornato su ${selectedNodes.length + 1} righe`, 'success')
+          const displayLabel = field.startsWith(CUSTOM_PREFIX) ? field.slice(CUSTOM_PREFIX.length) : field
+          showToast(`"${displayLabel}" aggiornato su ${selectedNodes.length + 1} righe`, 'success')
         } else {
-          showToast(`Campo "${field}" aggiornato`, 'success')
+          const displayLabel = field.startsWith(CUSTOM_PREFIX) ? field.slice(CUSTOM_PREFIX.length) : field
+          showToast(`Campo "${displayLabel}" aggiornato`, 'success')
         }
         await refreshAll()
       } catch (e) {
@@ -181,6 +248,9 @@ export default function GridView() {
       ...STRUTTURE_ALL_COLS
         .filter(c => visibleStruttureColumns.has(c.field))
         .map(c => ({ field: c.field, headerName: c.label, ...c.colDef } as ColDef)),
+      ...struttureCustomCols
+        .filter(c => visibleStruttureColumns.has(c.field))
+        .map(c => ({ field: c.field, headerName: `✦ ${c.label}`, ...c.colDef } as ColDef)),
       {
         headerName: '', width: 46, pinned: 'right' as const, sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
         cellRenderer: (params: ICellRendererParams) => (
@@ -190,7 +260,7 @@ export default function GridView() {
         )
       }
     ],
-    [openDrawer, visibleStruttureColumns]
+    [openDrawer, visibleStruttureColumns, struttureCustomCols]
   )
 
   const dipendentiCols: ColDef[] = useMemo(
@@ -199,6 +269,9 @@ export default function GridView() {
       ...DIPENDENTI_ALL_COLS
         .filter(c => visibleDipendentiColumns.has(c.field))
         .map(c => ({ field: c.field, headerName: c.label, ...c.colDef } as ColDef)),
+      ...dipendentiCustomCols
+        .filter(c => visibleDipendentiColumns.has(c.field))
+        .map(c => ({ field: c.field, headerName: `✦ ${c.label}`, ...c.colDef } as ColDef)),
       {
         headerName: '', width: 46, pinned: 'right' as const, sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
         cellRenderer: (params: ICellRendererParams) => (
@@ -208,12 +281,13 @@ export default function GridView() {
         )
       }
     ],
-    [openDrawer, visibleDipendentiColumns]
+    [openDrawer, visibleDipendentiColumns, dipendentiCustomCols]
   )
 
-  // Derived helpers for the column picker (re-evaluated each render, not memoized — trivial cost)
   const isStrTab = isStrutturaTab(subTab)
-  const currentAllCols = isStrTab ? STRUTTURE_ALL_COLS : DIPENDENTI_ALL_COLS
+  const currentAllCols = isStrTab
+    ? [...STRUTTURE_ALL_COLS, ...struttureCustomCols]
+    : [...DIPENDENTI_ALL_COLS, ...dipendentiCustomCols]
   const currentVisible = isStrTab ? visibleStruttureColumns : visibleDipendentiColumns
   const setCurrentVisible = isStrTab ? setVisibleStruttureColumns : setVisibleDipendentiColumns
 
@@ -227,19 +301,19 @@ export default function GridView() {
     })
   }, [subTab])
 
-  const struttureCodici = useMemo(
+  const strutturaCodici = useMemo(
     () => new Set(strutture.filter((s) => !s.deleted_at).map((s) => s.codice)),
     [strutture]
   )
 
   const orphanDipendenti = useMemo(
-    () => dipendenti.filter((d) => !d.deleted_at && (!d.codice_struttura || !struttureCodici.has(d.codice_struttura))),
-    [dipendenti, struttureCodici]
+    () => dipendenti.filter((d) => !d.deleted_at && (!d.codice_struttura || !strutturaCodici.has(d.codice_struttura))),
+    [dipendenti, strutturaCodici]
   )
 
   const orphanStrutture = useMemo(
-    () => strutture.filter((s) => !s.deleted_at && s.codice_padre !== null && s.codice_padre !== undefined && !struttureCodici.has(s.codice_padre)),
-    [strutture, struttureCodici]
+    () => strutture.filter((s) => !s.deleted_at && s.codice_padre !== null && s.codice_padre !== undefined && !strutturaCodici.has(s.codice_padre)),
+    [strutture, strutturaCodici]
   )
 
   const emptyStrutture = useMemo(() => {
@@ -288,12 +362,33 @@ export default function GridView() {
     }
   }, [strutture, dipendenti, subTab, search, sedeFiltro, showDeleted, orphanDipendenti, orphanStrutture, emptyStrutture])
 
-  const getRowClass = (params: { data?: (Struttura | Dipendente) & { deleted_at?: string | null } }) => {
+  // Flatten extra_data JSON into __cf__KEY virtual fields for AG Grid
+  const rowData = useMemo((): Record<string, unknown>[] =>
+    filteredData.map(record => {
+      const r = record as unknown as Record<string, unknown>
+      const extraStr = r.extra_data as string | undefined
+      if (!extraStr || extraStr === '{}') return r
+      try {
+        const extra = JSON.parse(extraStr) as Record<string, string>
+        const flat: Record<string, unknown> = { ...r }
+        for (const [key, val] of Object.entries(extra)) {
+          flat[CUSTOM_PREFIX + key] = val
+        }
+        return flat
+      } catch {
+        return r
+      }
+    }),
+    [filteredData]
+  )
+
+  const getRowClass = (params: { data?: Record<string, unknown> }) => {
     if (params.data?.deleted_at) return 'bg-red-50 line-through text-gray-400'
     return ''
   }
 
   const isMainTab = subTab === 'strutture' || subTab === 'dipendenti'
+  const currentCustomCols = isStrTab ? struttureCustomCols : dipendentiCustomCols
 
   return (
     <div className="flex flex-col h-full">
@@ -368,8 +463,9 @@ export default function GridView() {
                 </div>
               </div>
               <div className="overflow-y-auto flex-1 p-2">
+                {/* Standard columns */}
                 <div className="grid grid-cols-2 gap-0.5">
-                  {currentAllCols.map(col => (
+                  {(isStrTab ? STRUTTURE_ALL_COLS : DIPENDENTI_ALL_COLS).map(col => (
                     <label
                       key={col.field}
                       className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer select-none"
@@ -384,6 +480,30 @@ export default function GridView() {
                     </label>
                   ))}
                 </div>
+                {/* Custom fields section */}
+                {currentCustomCols.length > 0 && (
+                  <>
+                    <div className="px-2 pt-3 pb-1 text-xs font-semibold text-violet-600 uppercase tracking-wide">
+                      Variabili personalizzate
+                    </div>
+                    <div className="grid grid-cols-2 gap-0.5">
+                      {currentCustomCols.map(col => (
+                        <label
+                          key={col.field}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-violet-50 cursor-pointer select-none"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={currentVisible.has(col.field)}
+                            onChange={() => toggleColumn(col.field)}
+                            className="accent-violet-600 w-3.5 h-3.5 flex-shrink-0"
+                          />
+                          <span className="text-xs text-violet-700 truncate">{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -419,8 +539,8 @@ export default function GridView() {
       )}
 
       <div className="flex-1 ag-theme-alpine">
-        <AgGridReact
-          rowData={filteredData}
+        <AgGridReact<Record<string, unknown>>
+          rowData={rowData}
           columnDefs={isStrutturaTab(subTab) ? struttureCols : dipendentiCols}
           defaultColDef={{ resizable: true, suppressMovable: false, sortable: true, filter: true, floatingFilter: true }}
           getRowClass={getRowClass}

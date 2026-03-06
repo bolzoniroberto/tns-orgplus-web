@@ -27,6 +27,7 @@ export interface Struttura {
   altri_ruoli: string | null
   sede_tns: string | null
   gruppo_sind: string | null
+  extra_data?: string
   created_at?: string
   updated_at?: string
   deleted_at?: string | null
@@ -62,6 +63,7 @@ export interface Dipendente {
   altri_ruoli: string | null
   sede_tns: string | null
   gruppo_sind: string | null
+  extra_data?: string
   created_at?: string
   updated_at?: string
   deleted_at?: string | null
@@ -73,7 +75,7 @@ export interface ChangeLogEntry {
   entity_type: 'struttura' | 'dipendente'
   entity_id: string
   entity_label: string | null
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'IMPORT' | 'EXPORT'
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'IMPORT' | 'EXPORT' | 'ENRICH'
   field_name: string | null
   old_value: string | null
   new_value: string | null
@@ -106,4 +108,42 @@ export interface GridFilters {
   showDeleted: boolean
 }
 
-export type TabView = 'orgchart' | 'grid' | 'accordion' | 'importexport' | 'storico'
+export type TabView = 'orgchart' | 'grid' | 'accordion' | 'importexport' | 'storico' | 'enrichment'
+
+export interface CustomField {
+  id: number
+  entity_type: 'struttura' | 'dipendente'
+  field_key: string
+  field_label: string
+  created_at: string
+}
+
+export interface FieldChange {
+  field: string        // field_key or column name
+  label: string        // readable label
+  oldValue: string | null
+  newValue: string
+  isNew: boolean       // true if custom field had no value before
+  isCustom: boolean    // true if stored in extra_data
+}
+
+export interface EnrichmentDiff {
+  entityId: string
+  entityLabel: string
+  found: boolean
+  changes: FieldChange[]
+}
+
+export interface EnrichmentColumnMapping {
+  fileColumn: string
+  action: 'skip' | 'map' | 'new'
+  targetField?: string   // for action='map': DB column name
+  newLabel?: string      // for action='new': human-readable label
+  newKey?: string        // for action='new': auto-generated snake_case key
+}
+
+export interface EnrichmentConfig {
+  entityType: 'dipendente' | 'struttura'
+  idColumn: string
+  columnMappings: EnrichmentColumnMapping[]
+}

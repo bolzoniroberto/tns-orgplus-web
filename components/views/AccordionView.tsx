@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { Search, ChevronDown, Trash2, Edit2, GripVertical, Users, X } from 'lucide-react'
+import { Search, ChevronDown, Trash2, Edit2, GripVertical, Users, ArrowRightLeft, X } from 'lucide-react'
 import {
   DndContext,
   DragEndEvent,
@@ -128,6 +128,8 @@ function buildTree(
 
 // ── Accordion item component ─────────────────────────────────────────────────
 
+type ColorMode = 'none' | 'dipendenti'
+
 interface AccordionStruturaItemProps {
   treeNode: TreeStructura
   onEditStruttura: (s: Struttura & { dipendenti_count: number }) => void
@@ -135,6 +137,8 @@ interface AccordionStruturaItemProps {
   onEditDipendente: (d: Dipendente) => void
   onDeleteDipendente: (d: Dipendente) => void
   compact: boolean
+  colorMode: ColorMode
+  subtreeHasDipendenti: Set<string>
 }
 
 function AccordionStruturaItem({
@@ -144,12 +148,22 @@ function AccordionStruturaItem({
   onEditDipendente,
   onDeleteDipendente,
   compact,
+  colorMode,
+  subtreeHasDipendenti,
 }: AccordionStruturaItemProps) {
   const { struttura, children, dipendenti } = treeNode
 
+  const colorCls = colorMode === 'dipendenti'
+    ? struttura.dipendenti_count > 0
+      ? 'border-l-4 border-l-green-500 bg-green-50/30'
+      : subtreeHasDipendenti.has(struttura.codice)
+        ? 'border-l-4 border-l-amber-400 bg-amber-50/30'
+        : 'border-l-4 border-l-gray-200 opacity-60'
+    : ''
+
   return (
     <DroppableStruttura codice={struttura.codice}>
-      <Accordion.Item value={struttura.codice} className="border-b border-gray-100 last:border-0">
+      <Accordion.Item value={struttura.codice} className={`border-b border-gray-100 last:border-0 ${colorCls}`}>
 
         {/* Header: trigger (flex-1) + action buttons outside trigger to avoid nested <button> */}
         <div className="flex items-stretch">
@@ -253,6 +267,8 @@ function AccordionStruturaItem({
                   onEditDipendente={onEditDipendente}
                   onDeleteDipendente={onDeleteDipendente}
                   compact={compact}
+                  colorMode={colorMode}
+                  subtreeHasDipendenti={subtreeHasDipendenti}
                 />
               ))}
             </Accordion.Root>
@@ -280,6 +296,10 @@ export default function AccordionView() {
   const [drawerRecord, setDrawerRecord] = useState<(Struttura & { dipendenti_count: number }) | Dipendente | null>(null)
   const [drawerType, setDrawerType] = useState<'struttura' | 'dipendente'>('struttura')
   const [unassignedPanelOpen, setUnassignedPanelOpen] = useState(false)
+  const [movePanelOpen, setMovePanelOpen] = useState(false)
+  const [moveSearch, setMoveSearch] = useState('')
+  const [colorMode, setColorMode] = useState<ColorMode>('none')
+  const [hideNoEmployees, setHideNoEmployees] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -290,13 +310,39 @@ export default function AccordionView() {
     return Array.from(all).sort()
   }, [strutture, dipendenti])
 
-  const filteredStrutture = useMemo(() => {
-    let result = strutture
-    if (sedeFiltro !== 'all') {
-      result = result.filter((s) => (s.sede_tns?.toLowerCase() ?? '') === sedeFiltro.toLowerCase())
-    }
-    return result
+  const sedeFilteredStrutture = useMemo(() => {
+    if (sedeFiltro === 'all') return strutture
+    return strutture.filter((s) => (s.sede_tns?.toLowerCase() ?? '') === sedeFiltro.toLowerCase())
   }, [strutture, sedeFiltro])
+
+  const subtreeHasDipendenti = useMemo(() => {
+    const strutMap = new Map(sedeFilteredStrutture.filter(s => !s.deleted_at).map(s => [s.codice, s]))
+    const childrenOf = new Map<string, string[]>()
+    strutMap.forEach(s => {
+      const p = s.codice_padre ?? '__root__'
+      if (!childrenOf.has(p)) childrenOf.set(p, [])
+      childrenOf.get(p)!.push(s.codice)
+    })
+    const result = new Set<string>()
+    const dfs = (codice: string): boolean => {
+      const s = strutMap.get(codice)
+      if (!s) return false
+      const selfHas = s.dipendenti_count > 0
+      let childHas = false
+      for (const c of (childrenOf.get(codice) ?? [])) {
+        if (dfs(c)) childHas = true
+      }
+      if (selfHas || childHas) { result.add(codice); return true }
+      return false
+    }
+    ;(childrenOf.get('__root__') ?? []).forEach(r => dfs(r))
+    return result
+  }, [sedeFilteredStrutture])
+
+  const filteredStrutture = useMemo(() => {
+    if (hideNoEmployees) return sedeFilteredStrutture.filter(s => subtreeHasDipendenti.has(s.codice))
+    return sedeFilteredStrutture
+  }, [sedeFilteredStrutture, hideNoEmployees, subtreeHasDipendenti])
 
   const filteredDipendenti = useMemo(() => {
     let result = dipendenti
@@ -355,6 +401,28 @@ export default function AccordionView() {
     () => dipendenti.filter(d => !d.deleted_at && !d.codice_struttura?.trim()),
     [dipendenti]
   )
+
+  const strutMap = useMemo(
+    () => new Map(strutture.map(s => [s.codice, s.descrizione ?? s.codice])),
+    [strutture]
+  )
+
+  const assignedDipendenti = useMemo(() => {
+    const lower = moveSearch.toLowerCase()
+    return dipendenti
+      .filter(d => !d.deleted_at && d.codice_struttura?.trim())
+      .filter(d => {
+        if (!lower) return true
+        const strutNome = strutMap.get(d.codice_struttura)?.toLowerCase() ?? ''
+        return (
+          d.titolare?.toLowerCase().includes(lower) ||
+          d.codice_fiscale.toLowerCase().includes(lower) ||
+          d.codice_struttura.toLowerCase().includes(lower) ||
+          strutNome.includes(lower)
+        )
+      })
+      .sort((a, b) => (a.titolare ?? '').localeCompare(b.titolare ?? ''))
+  }, [dipendenti, moveSearch, strutMap])
 
   // ── Drag end: set pendingMove instead of saving directly ─────────────────
   const handleDragEnd = (event: DragEndEvent) => {
@@ -552,6 +620,46 @@ export default function AccordionView() {
           )}
         </button>
 
+        {/* Color mode toggle */}
+        <button
+          onClick={() => setColorMode(m => m === 'dipendenti' ? 'none' : 'dipendenti')}
+          className={[
+            'text-sm px-3 py-2 rounded-md transition-colors border',
+            colorMode === 'dipendenti'
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+              : 'border-gray-200 text-gray-500 hover:bg-gray-50',
+          ].join(' ')}
+        >
+          Evidenzia dipendenti
+        </button>
+
+        {/* Hide no-employees toggle */}
+        <button
+          onClick={() => setHideNoEmployees(v => !v)}
+          className={[
+            'text-sm px-3 py-2 rounded-md transition-colors border',
+            hideNoEmployees
+              ? 'bg-amber-50 text-amber-700 border-amber-200'
+              : 'border-gray-200 text-gray-500 hover:bg-gray-50',
+          ].join(' ')}
+        >
+          {hideNoEmployees ? 'Mostra tutto' : 'Nascondi senza dipendenti'}
+        </button>
+
+        {/* Move employees toggle */}
+        <button
+          onClick={() => setMovePanelOpen(v => !v)}
+          className={[
+            'flex items-center gap-1.5 text-sm px-3 py-2 rounded-md transition-colors border',
+            movePanelOpen
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+              : 'border-gray-200 text-gray-500 hover:bg-gray-50',
+          ].join(' ')}
+        >
+          <ArrowRightLeft className="w-3.5 h-3.5" />
+          <span>Sposta dipendenti</span>
+        </button>
+
         <span className="text-xs text-gray-400 ml-auto">
           ≡ Trascina per spostare strutture e dipendenti
         </span>
@@ -604,35 +712,126 @@ export default function AccordionView() {
             </div>
           )}
 
-          {/* Accordion area */}
-          <div className="flex-1 overflow-auto p-4">
-            {treeData.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-gray-400">Nessuna struttura trovata</p>
+          {/* Move employees panel */}
+          {movePanelOpen && (
+            <div className="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-white">
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="text-xs font-semibold text-gray-700">Sposta dipendenti</span>
+                  <span className="text-xs bg-indigo-100 text-indigo-700 font-medium px-1.5 py-0.5 rounded-full tabular-nums">
+                    {assignedDipendenti.length}
+                  </span>
+                </div>
+                <button onClick={() => setMovePanelOpen(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
-            ) : (
-              <Accordion.Root type="single" collapsible className="space-y-2">
-                {treeData.map((rootNode) => (
-                  <AccordionStruturaItem
-                    key={rootNode.struttura.codice}
-                    treeNode={rootNode}
-                    onEditStruttura={(s) => {
-                      setDrawerType('struttura')
-                      setDrawerRecord(s)
-                      setDrawerOpen(true)
-                    }}
-                    onDeleteStruttura={handleDeleteStruttura}
-                    onEditDipendente={(d) => {
-                      setDrawerType('dipendente')
-                      setDrawerRecord(d)
-                      setDrawerOpen(true)
-                    }}
-                    onDeleteDipendente={handleDeleteDipendente}
-                    compact={compact}
+
+              {/* Search */}
+              <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Cerca per nome, CF o struttura…"
+                    value={moveSearch}
+                    onChange={e => setMoveSearch(e.target.value)}
+                    className="w-full pl-6 pr-6 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
                   />
-                ))}
-              </Accordion.Root>
+                  {moveSearch && (
+                    <button
+                      onClick={() => setMoveSearch('')}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Body */}
+              {assignedDipendenti.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-center px-4">
+                  <p className="text-xs text-gray-400">Nessun dipendente trovato</p>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                  <p className="text-xs text-gray-400 px-1 pb-1">
+                    Trascina su una struttura per spostare
+                  </p>
+                  {assignedDipendenti.map((d) => {
+                    const strutNome = strutMap.get(d.codice_struttura)
+                    return (
+                      <DraggableDipendente key={d.codice_fiscale} cf={d.codice_fiscale}>
+                        <div className="flex flex-col px-2.5 py-2 bg-white border border-gray-200 rounded-md shadow-sm cursor-grab active:cursor-grabbing hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors">
+                          <span className="text-xs font-medium text-gray-800 truncate">
+                            {d.titolare || '—'}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-mono mt-0.5">{d.codice_fiscale}</span>
+                          <span className="text-[10px] text-indigo-500 mt-0.5 truncate" title={strutNome}>
+                            ↳ {strutNome ?? d.codice_struttura}
+                          </span>
+                        </div>
+                      </DraggableDipendente>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Accordion area */}
+          <div className="flex-1 overflow-auto">
+            {/* Color legend */}
+            {colorMode === 'dipendenti' && (
+              <div className="flex gap-4 px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex-shrink-0">
+                <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <span className="w-3 h-3 rounded-sm border-l-4 border-l-green-500 bg-green-50" />
+                  Dipendenti diretti
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <span className="w-3 h-3 rounded-sm border-l-4 border-l-amber-400 bg-amber-50" />
+                  Solo in strutture figlie
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <span className="w-3 h-3 rounded-sm border-l-4 border-l-gray-200 bg-white opacity-60" />
+                  Nessun dipendente
+                </span>
+              </div>
             )}
+            <div className="p-4">
+              {treeData.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-gray-400">Nessuna struttura trovata</p>
+                </div>
+              ) : (
+                <Accordion.Root type="single" collapsible className="space-y-2">
+                  {treeData.map((rootNode) => (
+                    <AccordionStruturaItem
+                      key={rootNode.struttura.codice}
+                      treeNode={rootNode}
+                      onEditStruttura={(s) => {
+                        setDrawerType('struttura')
+                        setDrawerRecord(s)
+                        setDrawerOpen(true)
+                      }}
+                      onDeleteStruttura={handleDeleteStruttura}
+                      onEditDipendente={(d) => {
+                        setDrawerType('dipendente')
+                        setDrawerRecord(d)
+                        setDrawerOpen(true)
+                      }}
+                      onDeleteDipendente={handleDeleteDipendente}
+                      compact={compact}
+                      colorMode={colorMode}
+                      subtreeHasDipendenti={subtreeHasDipendenti}
+                    />
+                  ))}
+                </Accordion.Root>
+              )}
+            </div>
           </div>
 
         </div>

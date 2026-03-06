@@ -6,6 +6,7 @@ import GridView from '@/components/views/GridView'
 import AccordionView from '@/components/views/AccordionView'
 import ImportExportView from '@/components/views/ImportExportView'
 import StoricoView from '@/components/views/StoricoView'
+import EnrichmentWizard from '@/components/views/EnrichmentWizard'
 import { useOrgStore } from '@/store/useOrgStore'
 import type { TabView } from '@/types'
 
@@ -36,6 +37,7 @@ export default function Home() {
       {mountedTabs.has('grid') && <div className={vis('grid')}><GridView /></div>}
       {mountedTabs.has('accordion') && <div className={vis('accordion')}><AccordionView /></div>}
       {mountedTabs.has('importexport') && <div className={vis('importexport')}><ImportExportView /></div>}
+      {mountedTabs.has('enrichment') && <div className={vis('enrichment')}><EnrichmentWizard /></div>}
       {mountedTabs.has('storico') && <div className={vis('storico')}><StoricoView /></div>}
     </AppShell>
   )

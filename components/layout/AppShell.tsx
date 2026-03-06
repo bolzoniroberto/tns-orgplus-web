@@ -10,6 +10,7 @@ const TABS: { id: TabView; label: string }[] = [
   { id: 'grid', label: 'Grid' },
   { id: 'accordion', label: 'Accordion' },
   { id: 'importexport', label: 'Import / Export' },
+  { id: 'enrichment', label: 'Arricchisci' },
   { id: 'storico', label: 'Storico' }
 ]
 

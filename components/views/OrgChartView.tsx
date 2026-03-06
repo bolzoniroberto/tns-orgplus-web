@@ -25,6 +25,7 @@ import OrgNode from '@/components/orgchart/OrgNode'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import LayoutHUD from '@/components/orgchart/LayoutHUD'
 import UnassignedPanel from '@/components/orgchart/UnassignedPanel'
+import MoveEmployeePanel from '@/components/orgchart/MoveEmployeePanel'
 
 const NODE_TYPES = { orgNode: OrgNode }
 
@@ -346,11 +347,17 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
 
   const [hideNoEmployees, setHideNoEmployees] = useState(false)
   const [unassignedPanelOpen, setUnassignedPanelOpen] = useState(false)
+  const [movePanelOpen, setMovePanelOpen] = useState(false)
 
   const { dipendenti } = useOrgStore()
 
   const unassignedCount = useMemo(
     () => dipendenti.filter(d => !d.deleted_at && !d.codice_struttura?.trim()).length,
+    [dipendenti]
+  )
+
+  const assignedCount = useMemo(
+    () => dipendenti.filter(d => !d.deleted_at && d.codice_struttura?.trim()).length,
     [dipendenti]
   )
 
@@ -690,7 +697,7 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
   useEffect(() => {
     setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 50)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerOpen, unassignedPanelOpen])
+  }, [drawerOpen, unassignedPanelOpen, movePanelOpen])
 
   // Search
   useEffect(() => {
@@ -844,6 +851,24 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
           )}
         </button>
 
+        {/* Move employees toggle */}
+        <button
+          onClick={() => setMovePanelOpen(v => !v)}
+          className={[
+            'relative text-sm px-2 py-1.5 rounded-md transition-colors border flex items-center gap-1.5',
+            movePanelOpen
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-medium'
+              : 'text-gray-500 border-gray-200 hover:bg-gray-50'
+          ].join(' ')}
+        >
+          <span>Sposta dipendenti</span>
+          {assignedCount > 0 && (
+            <span className="ml-0.5 text-xs bg-indigo-500 text-white font-semibold px-1.5 py-0.5 rounded-full tabular-nums leading-none">
+              {assignedCount}
+            </span>
+          )}
+        </button>
+
         <button
           onClick={expandAll}
           className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5 hover:bg-gray-50 rounded-md transition-colors"
@@ -927,6 +952,15 @@ function OrgCanvas({ strutture }: OrgCanvasProps) {
             strutture={strutture}
             onClose={() => setUnassignedPanelOpen(false)}
             onAssigned={refreshAll}
+          />
+        )}
+
+        {/* Move employee panel */}
+        {movePanelOpen && (
+          <MoveEmployeePanel
+            strutture={strutture}
+            onClose={() => setMovePanelOpen(false)}
+            onMoved={refreshAll}
           />
         )}
 
