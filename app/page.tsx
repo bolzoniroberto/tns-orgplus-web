@@ -7,6 +7,7 @@ import AccordionView from '@/components/views/AccordionView'
 import ImportExportView from '@/components/views/ImportExportView'
 import StoricoView from '@/components/views/StoricoView'
 import EnrichmentWizard from '@/components/views/EnrichmentWizard'
+import DashboardView from '@/components/dashboard/DashboardView'
 import { useOrgStore } from '@/store/useOrgStore'
 import type { TabView } from '@/types'
 
@@ -39,6 +40,7 @@ export default function Home() {
       {mountedTabs.has('importexport') && <div className={vis('importexport')}><ImportExportView /></div>}
       {mountedTabs.has('enrichment') && <div className={vis('enrichment')}><EnrichmentWizard /></div>}
       {mountedTabs.has('storico') && <div className={vis('storico')}><StoricoView /></div>}
+      {mountedTabs.has('dashboard') && <div className={vis('dashboard')}><DashboardView /></div>}
     </AppShell>
   )
 }

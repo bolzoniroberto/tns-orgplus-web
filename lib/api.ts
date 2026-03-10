@@ -2,7 +2,7 @@
  * Client-side API wrapper — same interface as window.api in Electron,
  * but uses fetch() to call Next.js API routes.
  */
-import type { Struttura, Dipendente, ChangeLogEntry, ImportReport, DeleteResult, StrutturaCounts, CustomField, EnrichmentConfig, EnrichmentDiff } from '../types'
+import type { Struttura, Dipendente, ChangeLogEntry, ImportReport, DeleteResult, StrutturaCounts, CustomField, EnrichmentConfig, EnrichmentDiff, StatsQueryRequest, StatsQueryResponse } from '../types'
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -188,5 +188,12 @@ export const api = {
 
     sedi: (): Promise<string[]> =>
       fetch('/api/stats/sedi').then(r => json(r)),
+
+    query: (req: StatsQueryRequest): Promise<StatsQueryResponse> =>
+      fetch('/api/stats/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+      }).then(r => json<StatsQueryResponse>(r)),
   },
 }

@@ -12,7 +12,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ cf: 
   const { cf } = await params
   const data = await req.json() as Record<string, unknown>
   const current = db().prepare('SELECT * FROM dipendenti WHERE codice_fiscale = ?').get(cf) as Record<string, unknown>
-  if (!current) return NextResponse.json({ success: false, error: 'NOT_FOUND' }, { status: 404 })
+  if (!current) return NextResponse.json({ success: false, message: `Dipendente "${cf}" non trovato` })
 
   const updateFields = [
     'codice_nel_file', 'unita_organizzativa', 'cdc_costo', 'cdc_costo_is_numeric',

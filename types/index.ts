@@ -108,7 +108,56 @@ export interface GridFilters {
   showDeleted: boolean
 }
 
-export type TabView = 'orgchart' | 'grid' | 'accordion' | 'importexport' | 'storico' | 'enrichment'
+export type TabView = 'orgchart' | 'grid' | 'accordion' | 'importexport' | 'storico' | 'enrichment' | 'dashboard'
+
+export type WidgetType = 'bar_vertical' | 'bar_horizontal' | 'pie' | 'stacked_bar' | 'kpi' | 'data_table'
+export type WidgetSize = 'small' | 'medium' | 'large'
+export type AggregationFn = 'count' | 'sum' | 'avg'
+export type EntityType = 'dipendenti' | 'strutture'
+
+export interface WidgetConfig {
+  id: string
+  type: WidgetType
+  title: string
+  entity: EntityType
+  groupBy: string
+  groupBy2?: string
+  aggregation: AggregationFn
+  aggregationField?: string
+  size: WidgetSize
+  includeNull?: boolean
+  colorScheme?: string
+}
+
+export interface Dashboard {
+  id: string
+  name: string
+  widgets: WidgetConfig[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StatsQueryRequest {
+  entity: EntityType
+  groupBy: string
+  groupBy2?: string
+  aggregation: AggregationFn
+  aggregationField?: string
+  includeNull?: boolean
+  limit?: number
+}
+
+export interface StatsQueryRow {
+  label: string
+  value: number
+  group2?: string
+}
+
+export interface StatsQueryResponse {
+  data: StatsQueryRow[]
+  fieldLabel: string
+  entityLabel: string
+}
 
 export interface CustomField {
   id: number

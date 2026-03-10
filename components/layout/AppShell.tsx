@@ -11,7 +11,8 @@ const TABS: { id: TabView; label: string }[] = [
   { id: 'accordion', label: 'Accordion' },
   { id: 'importexport', label: 'Import / Export' },
   { id: 'enrichment', label: 'Arricchisci' },
-  { id: 'storico', label: 'Storico' }
+  { id: 'storico', label: 'Storico' },
+  { id: 'dashboard', label: 'Dashboard' }
 ]
 
 interface AppShellProps {
@@ -26,12 +27,12 @@ export default function AppShell({ children }: AppShellProps) {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-950">
-      <header className="flex-none h-14 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center px-4 gap-4 z-20">
-        <span className="font-semibold text-gray-900 dark:text-gray-50 text-sm whitespace-nowrap">TNS OrgPlus</span>
+    <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
+      <header className="flex-none h-14 border-b flex items-center px-4 gap-4 z-20" style={{ background: 'var(--color-light-grey-2)', borderColor: 'var(--color-grey)' }}>
+        <span className="text-sm font-semibold whitespace-nowrap" style={{ color: 'var(--color-brown)' }}>TNS OrgPlus</span>
 
         {counts && (
-          <span className="text-xs text-gray-400 dark:text-gray-500 font-normal">
+          <span className="text-xs font-normal" style={{ color: 'var(--color-dark-grey)' }}>
             {counts.strutture} strutture · {counts.dipendenti} dipendenti
           </span>
         )}
@@ -45,12 +46,15 @@ export default function AppShell({ children }: AppShellProps) {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={[
-                'px-3 py-1.5 text-sm rounded-md transition-colors',
-                activeTab === tab.id
-                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-50 font-medium border-b-2 border-indigo-600'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              ].join(' ')}
+              className="px-3 py-1.5 text-sm rounded-md transition-colors"
+              style={activeTab === tab.id ? {
+                background: 'var(--color-grey)',
+                color: 'var(--color-brown)',
+                fontWeight: 'var(--font-weight-bold)',
+                borderBottom: '2px solid var(--color-primary)'
+              } : {
+                color: 'var(--color-dark-grey)'
+              }}
             >
               {tab.label}
             </button>

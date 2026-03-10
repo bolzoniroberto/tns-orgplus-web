@@ -19,7 +19,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ codi
   const { codice } = await params
   const data = await req.json() as Record<string, unknown>
   const current = db().prepare('SELECT * FROM strutture WHERE codice = ?').get(codice) as Record<string, unknown>
-  if (!current) return NextResponse.json({ success: false, error: 'NOT_FOUND' }, { status: 404 })
+  if (!current) return NextResponse.json({ success: false, message: `Struttura "${codice}" non trovata` })
 
   const updateFields = [
     'codice_padre', 'descrizione', 'cdc_costo', 'titolare', 'livello',
@@ -73,17 +73,17 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const figli = (db().prepare('SELECT COUNT(*) as n FROM strutture WHERE codice_padre = ? AND deleted_at IS NULL').get(codice) as { n: number }).n
   if (figli > 0) {
     return NextResponse.json({
-      success: false, error: 'STRUTTURA_HAS_CHILDREN',
+      success: false,
       message: `Impossibile eliminare: ${figli} struttur${figli === 1 ? 'a figlia attiva' : 'e figlie attive'}. Spostale prima.`
-    }, { status: 409 })
+    })
   }
 
   const dipendenti = (db().prepare('SELECT COUNT(*) as n FROM dipendenti WHERE codice_struttura = ? AND deleted_at IS NULL').get(codice) as { n: number }).n
   if (dipendenti > 0) {
     return NextResponse.json({
-      success: false, error: 'STRUTTURA_HAS_EMPLOYEES',
+      success: false,
       message: `Impossibile eliminare: ${dipendenti} dipendent${dipendenti === 1 ? 'e assegnato' : 'i assegnati'}. Spostali prima.`
-    }, { status: 409 })
+    })
   }
 
   const struttura = db().prepare('SELECT descrizione FROM strutture WHERE codice = ?').get(codice) as { descrizione: string }

@@ -9,8 +9,10 @@ import {
   useSensor,
   useSensors,
   closestCenter,
+  pointerWithin,
   useDraggable,
   useDroppable,
+  type CollisionDetection,
 } from '@dnd-kit/core'
 import * as Accordion from '@radix-ui/react-accordion'
 import { useOrgStore } from '@/store/useOrgStore'
@@ -162,11 +164,11 @@ function AccordionStruturaItem({
     : ''
 
   return (
-    <DroppableStruttura codice={struttura.codice}>
-      <Accordion.Item value={struttura.codice} className={`border-b border-gray-100 last:border-0 ${colorCls}`}>
+    <Accordion.Item value={struttura.codice} className={`border-b border-gray-100 last:border-0 ${colorCls}`}>
 
-        {/* Header: trigger (flex-1) + action buttons outside trigger to avoid nested <button> */}
-        <div className="flex items-stretch">
+      {/* Droppable wraps ONLY the header row — not recursive children — to avoid overlap */}
+      <DroppableStruttura codice={struttura.codice}>
+        <div className="flex items-stretch min-h-[36px]">
           <Accordion.Trigger className="flex-1 min-w-0 text-left hover:bg-gray-50 data-[state=open]:bg-indigo-50/40 transition-colors">
             <DraggableStruttura codice={struttura.codice}>
               <div className="flex items-center gap-2 px-3 py-2 min-w-0">
@@ -219,8 +221,9 @@ function AccordionStruturaItem({
             </button>
           </div>
         </div>
+      </DroppableStruttura>
 
-        <Accordion.Content>
+      <Accordion.Content>
           {/* Dipendenti — compact single-line rows */}
           {dipendenti.length > 0 && (
             <div className="border-t border-blue-100/60 bg-blue-50/30 px-3 py-1.5">
@@ -273,9 +276,8 @@ function AccordionStruturaItem({
               ))}
             </Accordion.Root>
           )}
-        </Accordion.Content>
-      </Accordion.Item>
-    </DroppableStruttura>
+      </Accordion.Content>
+    </Accordion.Item>
   )
 }
 
@@ -302,6 +304,14 @@ export default function AccordionView() {
   const [hideNoEmployees, setHideNoEmployees] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
+  // Use pointerWithin first (pointer must be inside the droppable rect),
+  // fall back to closestCenter when the pointer is between targets.
+  const collisionDetection: CollisionDetection = (args) => {
+    const pointer = pointerWithin(args)
+    if (pointer.length > 0) return pointer
+    return closestCenter(args)
+  }
 
   const sediList = useMemo(() => {
     const all = new Set<string>()
@@ -384,6 +394,15 @@ export default function AccordionView() {
       const dip = filteredDipendenti.find((d) => d.codice_fiscale === cf)
       if (dip) matching.add(dip.codice_struttura)
     })
+    // Include all ancestors so the tree can navigate to matched nodes
+    const strutByCode = new Map(filteredStrutture.map((s) => [s.codice, s]))
+    for (const codice of new Set(matching)) {
+      let current = strutByCode.get(codice)
+      while (current?.codice_padre) {
+        matching.add(current.codice_padre)
+        current = strutByCode.get(current.codice_padre)
+      }
+    }
     return matching
   }, [search, filteredStrutture, filteredDipendenti, searchDipendentiResults])
 
@@ -572,7 +591,7 @@ export default function AccordionView() {
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Cerca struttura..."
+            placeholder="Cerca per codice o nome..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
@@ -666,7 +685,7 @@ export default function AccordionView() {
       </div>
 
       {/* Content — DndContext wraps both panel and accordion so drags cross boundaries */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={handleDragEnd}>
         <div className="flex flex-1 min-h-0 overflow-hidden">
 
           {/* Unassigned panel */}

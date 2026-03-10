@@ -20,22 +20,31 @@ Utilizza queste variabili in ogni progetto web generato:
 ```css
 :root {
   /* Brand Colors */
-  --sole-yellow: #E3A11F;       /* Il leggendario Giallo Sole */
-  --sole-black: #1A1A1A;        /* Testo principale e titoli */
-  --sole-grey-dark: #4D4D4D;    /* Testo secondario / captions */
-  --sole-grey-medium: #CCCCCC;  /* Bordi e divisori */
-  --sole-grey-light: #F9F9F9;   /* Sfondi sezioni e input */
-  --sole-white: #FFFFFF;
-  
+  --sole-bg:           #F5E5D5;   /* Sfondo brand — beige caldo (body/layout principale) */
+  --sole-text:         #000000;   /* Testo primario */
+  --sole-yellow:       #E3A11F;   /* Il leggendario Giallo Sole */
+  --sole-black:        #1A1A1A;   /* Titoli e bordi thick */
+  --sole-grey-dark:    #4D4D4D;   /* Testo secondario / captions */
+  --sole-grey-medium:  #CCCCCC;   /* Bordi e divisori */
+  --sole-grey-light:   #F9F9F9;   /* Sfondi sezioni e input */
+  --sole-white:        #FFFFFF;
+
   /* Typography */
-  --font-serif: 'Georgia', 'Times New Roman', serif; /* Per Titoli e Quote */
-  --font-sans: 'Helvetica Neue', Arial, sans-serif;  /* Per UI, Nav e Body */
-  
+  --font-sans:   'SoleSans', 'Helvetica Neue', Arial, sans-serif; /* UI, Nav, Body */
+  --font-serif:  'Georgia', 'Times New Roman', serif;             /* Titoli editoriali */
+
+  /* Base Typography */
+  font-size:    16px;      /* Base; il sito pubblico usa 20px — ridotto per la web app */
+  font-weight:  normal;
+  line-height:  1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+
   /* Layout */
-  --border-thin: 1px solid var(--sole-grey-medium);
-  --border-thick: 3px solid var(--sole-black);
-  --section-padding: 2rem;
-  --max-width: 1200px;
+  --border-thin:      1px solid var(--sole-grey-medium);
+  --border-thick:     3px solid var(--sole-black);
+  --section-padding:  2rem;
+  --max-width:        1200px;
 }
 3. Specifiche dei Componenti
 A. Tipografia
