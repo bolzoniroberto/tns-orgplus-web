@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   // AG Grid 31.x is incompatible with React 19 StrictMode's reappearLayoutEffects cycle:
   // refs are re-attached and ResizeObserver receives a null element. Disable in dev.
   reactStrictMode: false,
+  basePath: '/tns-orgplus',
 }
 
 export default nextConfig
